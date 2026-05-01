@@ -134,7 +134,7 @@ export function AICoach() {
       analyses.push({
         type,
         message: generateExplanation(
-          { type, evalDelta: evalAfter - evalBefore },
+          { type, message: "", evalDelta: evalAfter - evalBefore },
           move.san,
           Math.floor(i / 2) + 1
         ),
