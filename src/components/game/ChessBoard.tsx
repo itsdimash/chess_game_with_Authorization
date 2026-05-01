@@ -19,6 +19,8 @@ interface ChessBoardProps {
   showCoordinates?: boolean
   onMove?: (from: Square, to: Square, promotion?: string) => void
   size?: number
+  lightSquareColor?: string
+  darkSquareColor?: string
 }
 
 export function ChessBoard({
@@ -28,6 +30,8 @@ export function ChessBoard({
   showCoordinates = true,
   onMove,
   size = 560,
+  lightSquareColor = '#f0d9b5',
+  darkSquareColor = '#b58863',
 }: ChessBoardProps) {
   const {
     chess,
@@ -219,11 +223,14 @@ export function ChessBoard({
                       key={square}
                       className={clsx(
                         'relative cursor-pointer select-none',
-                        isLight ? 'bg-[#f0d9b5]' : 'bg-[#b58863]',
                         isSelected && 'brightness-110',
                         isKingInCheck && 'bg-red-500/60',
                       )}
-                      style={{ width: squareSize, height: squareSize }}
+                      style={{
+                        width: squareSize,
+                        height: squareSize,
+                        backgroundColor: isKingInCheck ? undefined : (isLight ? lightSquareColor : darkSquareColor),
+                      }}
                       onClick={() => handleSquareClick(square)}
                     >
                       {/* Last move highlight */}

@@ -33,15 +33,16 @@ export default function Home() {
   const handleMove = (from: Square, to: Square, promotion?: string) => {
     const success = makeMove(from, to, promotion)
     if (!success) return
-    analyzePosition(chess.fen())
+
+    const state = useGameStore.getState()
+    analyzePosition(state.chess.fen())
 
     if (mode === 'ai') {
-      const state = useGameStore.getState()
-      const currentChess = state.chess
-      const currentPlayerColor = state.playerColor
-      if (currentChess.turn() !== currentPlayerColor && currentPlayerColor !== 'both') {
+      const aiColor = playerColor === 'w' ? 'b' : 'w'
+      if (state.chess.turn() === aiColor && (state.status === 'playing' || state.status === 'check')) {
         setTimeout(() => {
           const s = useGameStore.getState()
+          if (s.status !== 'playing' && s.status !== 'check') return
           const moves = s.chess.moves({ verbose: true })
           if (moves.length > 0) {
             const move = moves[Math.floor(Math.random() * moves.length)]
