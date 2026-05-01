@@ -31,9 +31,10 @@ export function PieceComponent({ piece, size, onMouseDown, isDragging }: PiecePr
         cursor: isDragging ? 'grabbing' : 'grab',
         userSelect: 'none',
         opacity: isDragging ? 0.5 : 1,
+        color: piece.color === 'w' ? '#ffffff' : '#000000',
         filter: piece.color === 'w'
-          ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))'
-          : 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))',
+          ? 'drop-shadow(0 1px 3px rgba(0,0,0,0.9)) drop-shadow(0 0 1px rgba(0,0,0,0.8))'
+          : 'drop-shadow(0 1px 3px rgba(255,255,255,0.4))',
         transition: 'opacity 0.1s',
       }}
     >
