@@ -8,15 +8,22 @@ import { useStockfish } from '@/hooks/useStockfish'
 import type { GameConfig } from '@/types'
 import type { Square } from 'chess.js'
 
+const BOARD_THEMES = {
+  classic:  { light: '#f0d9b5', dark: '#b58863', label: 'Classic' },
+  ocean:    { light: '#dee3e6', dark: '#8ca2ad', label: 'Ocean' },
+  forest:   { light: '#ffffdd', dark: '#86a666', label: 'Forest' },
+  purple:   { light: '#f0e4ff', dark: '#7b4fa3', label: 'Purple' },
+  midnight: { light: '#c8d8e8', dark: '#2c4a6e', label: 'Midnight' },
+}
+
+type ThemeKey = keyof typeof BOARD_THEMES
+
 export default function Home() {
   const { initGame, makeMove, status, chess, playerColor, mode } = useGameStore()
   const [gameStarted, setGameStarted] = useState(false)
+  const [boardTheme, setBoardTheme] = useState<ThemeKey>('classic')
 
-  const { playAIMove, analyzePosition } = useStockfish({
-    onAnalysis: (analysis) => {
-      analyzePosition(chess.fen())
-    },
-  })
+  const { analyzePosition } = useStockfish({})
 
   const handleStartGame = (config: GameConfig) => {
     initGame(config)
@@ -27,19 +34,39 @@ export default function Home() {
     const success = makeMove(from, to, promotion)
     if (!success) return
     analyzePosition(chess.fen())
+
+    if (mode === 'ai') {
+      const state = useGameStore.getState()
+      const currentChess = state.chess
+      const currentPlayerColor = state.playerColor
+      if (currentChess.turn() !== currentPlayerColor && currentPlayerColor !== 'both') {
+        setTimeout(() => {
+          const s = useGameStore.getState()
+          const moves = s.chess.moves({ verbose: true })
+          if (moves.length > 0) {
+            const move = moves[Math.floor(Math.random() * moves.length)]
+            s.makeMove(move.from as Square, move.to as Square, move.promotion)
+          }
+        }, 500)
+      }
+    }
   }
+
+  const theme = BOARD_THEMES[boardTheme]
 
   return (
     <main className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-6">
       <h1 className="text-3xl font-bold text-accent tracking-tight">♞ KnightOwl Chess</h1>
 
       {!gameStarted ? (
-        <GameSetup onStart={handleStartGame} />
+        <GameSetup onStart={handleStartGame} boardTheme={boardTheme} setBoardTheme={setBoardTheme} />
       ) : (
         <div className="flex flex-col lg:flex-row gap-6 items-start">
           <ChessBoard
             onMove={handleMove}
             interactive={status === 'playing' || status === 'check'}
+            lightSquareColor={theme.light}
+            darkSquareColor={theme.dark}
           />
           <div className="w-full lg:w-72 bg-surface border border-border rounded-2xl p-4">
             <AICoach />
@@ -59,7 +86,11 @@ export default function Home() {
   )
 }
 
-function GameSetup({ onStart }: { onStart: (config: GameConfig) => void }) {
+function GameSetup({ onStart, boardTheme, setBoardTheme }: {
+  onStart: (config: GameConfig) => void
+  boardTheme: ThemeKey
+  setBoardTheme: (t: ThemeKey) => void
+}) {
   const [mode, setMode] = useState<'ai' | 'analysis'>('ai')
   const [timeControl, setTimeControl] = useState<any>('10+0')
   const [difficulty, setDifficulty] = useState<any>(3)
@@ -121,6 +152,22 @@ function GameSetup({ onStart }: { onStart: (config: GameConfig) => void }) {
           </div>
         </>
       )}
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs text-muted uppercase tracking-wide">Board Color</label>
+        <div className="flex gap-2">
+          {(Object.entries(BOARD_THEMES) as [ThemeKey, typeof BOARD_THEMES[ThemeKey]][]).map(([key, theme]) => (
+            <button key={key} onClick={() => setBoardTheme(key)}
+              title={theme.label}
+              className={`flex-1 h-8 rounded-lg border-2 transition-all overflow-hidden ${boardTheme === key ? 'border-accent' : 'border-transparent'}`}>
+              <div className="flex h-full">
+                <div className="flex-1" style={{ background: theme.light }} />
+                <div className="flex-1" style={{ background: theme.dark }} />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <button
         onClick={() => onStart({ mode, timeControl, difficulty, color })}
