@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChessBoard } from '@/components/game/ChessBoard'
 import { AICoach } from '@/components/game/AICoach'
 import { useGameStore } from '@/store/gameStore'
@@ -19,38 +19,53 @@ const BOARD_THEMES = {
 type ThemeKey = keyof typeof BOARD_THEMES
 
 export default function Home() {
-  const { initGame, makeMove, status, chess, playerColor, mode } = useGameStore()
+  const { initGame, makeMove, status, chess, playerColor, mode, startTimer } = useGameStore()
   const [gameStarted, setGameStarted] = useState(false)
   const [boardTheme, setBoardTheme] = useState<ThemeKey>('classic')
 
-  const { analyzePosition } = useStockfish({})
+  const handleAIMove = (from: string, to: string, promo?: string) => {
+    const state = useGameStore.getState()
+    if (state.status !== 'playing' && state.status !== 'check') return
+    state.makeMove(from as Square, to as Square, promo)
+  }
+
+  const { analyzePosition, playAIMove, isReady } = useStockfish({
+    onAnalysis: () => {},
+  })
+
+  // Trigger AI move whenever it becomes the AI's turn
+  useEffect(() => {
+    if (!gameStarted || mode !== 'ai') return
+    const state = useGameStore.getState()
+    if (state.status !== 'playing' && state.status !== 'check') return
+
+    const aiColor = playerColor === 'w' ? 'b' : 'w'
+    if (chess.turn() === aiColor) {
+      const timeout = setTimeout(() => {
+        const s = useGameStore.getState()
+        if (s.status !== 'playing' && s.status !== 'check') return
+        playAIMove(s.chess.fen(), handleAIMove)
+      }, 300)
+      return () => clearTimeout(timeout)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chess.fen(), gameStarted, mode, playerColor, isReady])
 
   const handleStartGame = (config: GameConfig) => {
     initGame(config)
     setGameStarted(true)
+    // Start timer after store updates
+    setTimeout(() => {
+      useGameStore.getState().startTimer()
+    }, 100)
   }
 
   const handleMove = (from: Square, to: Square, promotion?: string) => {
     const success = makeMove(from, to, promotion)
     if (!success) return
-
     const state = useGameStore.getState()
     analyzePosition(state.chess.fen())
-
-    if (mode === 'ai') {
-      const aiColor = playerColor === 'w' ? 'b' : 'w'
-      if (state.chess.turn() === aiColor && (state.status === 'playing' || state.status === 'check')) {
-        setTimeout(() => {
-          const s = useGameStore.getState()
-          if (s.status !== 'playing' && s.status !== 'check') return
-          const moves = s.chess.moves({ verbose: true })
-          if (moves.length > 0) {
-            const move = moves[Math.floor(Math.random() * moves.length)]
-            s.makeMove(move.from as Square, move.to as Square, move.promotion)
-          }
-        }, 500)
-      }
-    }
+    // AI response is handled by the useEffect above
   }
 
   const theme = BOARD_THEMES[boardTheme]
@@ -70,11 +85,15 @@ export default function Home() {
             darkSquareColor={theme.dark}
           />
           <div className="w-full lg:w-72 bg-surface border border-border rounded-2xl p-4">
+            <TimerDisplay />
             <AICoach />
             <div className="mt-4 pt-4 border-t border-border">
               <StatusBanner status={status} />
               <button
-                onClick={() => { useGameStore.getState().resetGame(); setGameStarted(false) }}
+                onClick={() => {
+                  useGameStore.getState().resetGame()
+                  setGameStarted(false)
+                }}
                 className="mt-3 w-full py-2 rounded-lg border border-border hover:border-accent hover:text-accent text-sm text-muted transition-all"
               >
                 New Game
@@ -84,6 +103,45 @@ export default function Home() {
         </div>
       )}
     </main>
+  )
+}
+
+function TimerDisplay() {
+  const { whiteTime, blackTime, activeTimer, playerColor } = useGameStore()
+
+  const fmt = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0')
+    const s = (secs % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
+  }
+
+  const isWhiteActive = activeTimer === 'w'
+  const isBlackActive = activeTimer === 'b'
+
+  return (
+    <div className="flex flex-col gap-2 mb-4">
+      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border transition-all ${
+        isBlackActive ? 'border-accent bg-accent/10' : 'border-border'
+      }`}>
+        <span className="text-sm text-muted">
+          {playerColor === 'w' ? '🤖 AI (Black)' : '♚ You (Black)'}
+        </span>
+        <span className={`font-mono font-bold text-lg ${isBlackActive ? 'text-accent' : 'text-text'} ${blackTime <= 30 ? 'text-red-400' : ''}`}>
+          {fmt(blackTime)}
+        </span>
+      </div>
+
+      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border transition-all ${
+        isWhiteActive ? 'border-accent bg-accent/10' : 'border-border'
+      }`}>
+        <span className="text-sm text-muted">
+          {playerColor === 'b' ? '🤖 AI (White)' : '♔ You (White)'}
+        </span>
+        <span className={`font-mono font-bold text-lg ${isWhiteActive ? 'text-accent' : 'text-text'} ${whiteTime <= 30 ? 'text-red-400' : ''}`}>
+          {fmt(whiteTime)}
+        </span>
+      </div>
+    </div>
   )
 }
 
