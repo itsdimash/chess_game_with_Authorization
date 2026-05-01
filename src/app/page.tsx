@@ -26,18 +26,6 @@ export default function Home() {
   const handleMove = (from: Square, to: Square, promotion?: string) => {
     const success = makeMove(from, to, promotion)
     if (!success) return
-
-    // Trigger AI move if playing vs AI
-    if (mode === 'ai') {
-      const { chess: updatedChess, playerColor: color } = useGameStore.getState()
-      if (updatedChess.turn() !== color && color !== 'both') {
-        playAIMove(updatedChess.fen(), (f, t, p) => {
-          makeMove(f as Square, t as Square, p)
-        })
-      }
-    }
-
-    // Analyze position for coaching
     analyzePosition(chess.fen())
   }
 
