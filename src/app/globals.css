@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f0e0d;
+  --surface: #1a1814;
+  --surface2: #221f1a;
+  --border: #2e2a24;
+  --border2: #3d3830;
+  --text: #e8e0d4;
+  --muted: #7a7065;
+  --accent: #c9a227;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text);
+}
+
+/* Map CSS variables to Tailwind custom classes */
+.bg-background { background-color: var(--background); }
+.bg-surface { background-color: var(--surface); }
+.bg-surface2 { background-color: var(--surface2); }
+.border-border { border-color: var(--border); }
+.border-border2 { border-color: var(--border2); }
+.text-text { color: var(--text); }
+.text-muted { color: var(--muted); }
+.text-accent { color: var(--accent); }
+.bg-accent { background-color: var(--accent); }
+.border-accent { border-color: var(--accent); }
