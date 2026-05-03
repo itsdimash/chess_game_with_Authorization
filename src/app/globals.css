@@ -1,43 +1,143 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&family=Cinzel:wght@400;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #0f0e0d;
-  --surface: #1a1814;
-  --surface2: #221f1a;
-  --border: #2e2a24;
-  --border2: #3d3830;
-  --text: #e8e0d4;
-  --muted: #7a7065;
-  --accent: #c9a227;
+  --background: #080a0e;
+  --surface: #0e1117;
+  --surface2: #141920;
+  --surface3: #1c2330;
+  --border: #1e2535;
+  --border2: #2a3448;
+  --text: #d4cfc8;
+  --text2: #a09890;
+  --muted: #5a6070;
+  --accent: #c8a96e;
+  --accent2: #e8c97e;
+  --accent-dim: #8a7040;
+  --danger: #c0503a;
+  --success: #4a9060;
+  --glow: rgba(200, 169, 110, 0.12);
+  --glow-strong: rgba(200, 169, 110, 0.22);
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Cormorant Garamond', serif;
+  --font-mono: 'DM Mono', monospace;
 }
 
-html.light {
-  --background: #f5f0e8;
-  --surface: #ffffff;
-  --surface2: #ede8df;
-  --border: #d6cfc4;
-  --border2: #c2b9ab;
-  --text: #1a1710;
-  --muted: #7a7065;
-  --accent: #b8860b;
-}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
 body {
   background-color: var(--background);
   color: var(--text);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(200, 169, 110, 0.06) 0%, transparent 60%),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-attachment: fixed;
 }
 
-/* Map CSS variables to Tailwind custom classes */
-.bg-background { background-color: var(--background); }
-.bg-surface { background-color: var(--surface); }
-.bg-surface2 { background-color: var(--surface2); }
-.border-border { border-color: var(--border); }
+.bg-background  { background-color: var(--background); }
+.bg-surface     { background-color: var(--surface); }
+.bg-surface2    { background-color: var(--surface2); }
+.bg-surface3    { background-color: var(--surface3); }
+.border-border  { border-color: var(--border); }
 .border-border2 { border-color: var(--border2); }
-.text-text { color: var(--text); }
-.text-muted { color: var(--muted); }
-.text-accent { color: var(--accent); }
-.bg-accent { background-color: var(--accent); }
-.border-accent { border-color: var(--accent); }
+.text-text      { color: var(--text); }
+.text-text2     { color: var(--text2); }
+.text-muted     { color: var(--muted); }
+.text-accent    { color: var(--accent); }
+.text-accent2   { color: var(--accent2); }
+.bg-accent      { background-color: var(--accent); }
+.border-accent  { border-color: var(--accent); }
+.font-display   { font-family: var(--font-display); }
+.font-body      { font-family: var(--font-body); }
+.font-mono      { font-family: var(--font-mono); }
+
+.glass {
+  background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+.btn-gold {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #0a0c10;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+.btn-gold:hover { box-shadow: 0 0 28px var(--glow-strong), 0 4px 16px rgba(0,0,0,0.4); }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--glow);
+}
+
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+
+::selection { background: rgba(200,169,110,0.25); color: var(--accent2); }
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border2), transparent);
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--surface3) 50%, var(--surface2) 75%);
+  background-size: 200% auto;
+  animation: shimmer 1.5s linear infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1; }
+}
+.thinking-pulse { animation: pulse-glow 1.6s ease-in-out infinite; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up { animation: fadeInUp 0.45s ease forwards; }
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92%       { opacity: 1; }
+  93%       { opacity: 0.85; }
+  94%       { opacity: 1; }
+}
+.candle-flicker { animation: flicker 4s ease-in-out infinite; }

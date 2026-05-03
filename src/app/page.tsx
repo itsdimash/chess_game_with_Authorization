@@ -5,7 +5,6 @@ import { ChessBoard } from '@/components/game/ChessBoard'
 import { AICoach } from '@/components/game/AICoach'
 import { AuthModal } from '@/components/AuthModal'
 import { Leaderboard } from '@/components/Leaderboard'
-import { ThemeToggle } from '@/components/ThemeProvider'
 import { useGameStore } from '@/store/gameStore'
 import { useStockfish } from '@/hooks/useStockfish'
 import { useAuth } from '@/hooks/useAuth'
@@ -94,112 +93,148 @@ export default function Home() {
   const theme = BOARD_THEMES[boardTheme]
 
   return (
-    <main className="min-h-screen bg-background flex flex-col items-center p-2 sm:p-4 gap-3 sm:gap-6">
-      {/* Header */}
-      <div className="w-full flex items-center justify-between max-w-5xl pt-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-accent tracking-tight">
-          ♞ KnightOwl Chess
-        </h1>
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
+    <main className="min-h-screen bg-background flex flex-col items-center p-2 sm:p-4 gap-4 sm:gap-6 relative overflow-x-hidden">
+
+      {/* Ambient top vignette */}
+      <div className="pointer-events-none fixed inset-x-0 top-0 h-48 z-0"
+        style={{ background: 'linear-gradient(to bottom, rgba(200,169,110,0.04) 0%, transparent 100%)' }} />
+
+      {/* ── Header ── */}
+      <header className="w-full flex items-center justify-between max-w-6xl pt-3 px-2 relative z-10">
+        <div className="flex items-center gap-3">
+          {/* Candle-flicker chess piece icon */}
+          <span className="text-2xl candle-flicker" style={{ color: 'var(--accent)', filter: 'drop-shadow(0 0 8px rgba(200,169,110,0.5))' }}>♞</span>
+          <div>
+            <h1 className="font-display text-lg sm:text-xl tracking-[0.15em] uppercase"
+              style={{ color: 'var(--accent)', textShadow: '0 0 20px rgba(200,169,110,0.3)' }}>
+              KnightOwl
+            </h1>
+            <p className="text-[10px] tracking-[0.25em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)', marginTop: '-2px' }}>
+              Chess
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3">
           {!authLoading && (
             user ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted hidden sm:block">
+                <span className="hidden sm:block text-xs tracking-wide" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>
                   {user.user_metadata?.user_name || user.email?.split('@')[0]}
                 </span>
-                <button
-                  onClick={signOut}
-                  className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted hover:border-accent hover:text-accent transition-all"
-                >
-                  Sign out
+                <button onClick={signOut} className="btn-ghost px-3 py-1.5 rounded-lg text-xs">
+                  Leave
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setShowAuth(true)}
-                className="px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:brightness-110 transition-all"
-              >
+              <button onClick={() => setShowAuth(true)} className="btn-gold px-4 py-1.5 rounded-lg text-xs">
                 Sign in
               </button>
             )
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Tabs */}
-      <div className="flex gap-2">
+      {/* ── Tabs ── */}
+      <nav className="flex gap-1 p-1 rounded-xl relative z-10"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
         {(['game', 'leaderboard'] as Tab[]).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-lg border text-sm transition-all ${
-              activeTab === tab
-                ? 'border-accent text-accent bg-accent/10'
-                : 'border-border text-muted hover:border-border2'
-            }`}
+            className="relative px-5 py-2 rounded-lg text-xs transition-all duration-200"
+            style={{
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: activeTab === tab ? 'var(--accent)' : 'var(--muted)',
+              background: activeTab === tab ? 'var(--surface2)' : 'transparent',
+              border: activeTab === tab ? '1px solid var(--border2)' : '1px solid transparent',
+              boxShadow: activeTab === tab ? '0 0 12px var(--glow)' : 'none',
+            }}
           >
-            {tab === 'game' ? '♟ Game' : '🏆 Leaderboard'}
+            {tab === 'game' ? '♟ Game' : '⚜ Leaderboard'}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {activeTab === 'leaderboard' ? (
-        <Leaderboard />
-      ) : !gameStarted ? (
-        <GameSetup
-          onStart={handleStartGame}
-          boardTheme={boardTheme}
-          setBoardTheme={setBoardTheme}
-        />
-      ) : (
-        <div className="w-full flex flex-col lg:flex-row gap-3 lg:gap-6 items-center lg:items-start lg:justify-center">
-          <div className="flex-shrink-0 flex justify-center w-full lg:w-auto">
-            <ChessBoard
-              onMove={handleMove}
-              interactive={status === 'playing' || status === 'check'}
-              lightSquareColor={theme.light}
-              darkSquareColor={theme.dark}
-              size={boardSize}
-              showEvalBar={boardSize >= 320}
-              showCoordinates={boardSize >= 280}
-            />
-          </div>
+      {/* ── Content ── */}
+      <div className="w-full relative z-10 flex justify-center">
+        {activeTab === 'leaderboard' ? (
+          <Leaderboard />
+        ) : !gameStarted ? (
+          <GameSetup
+            onStart={handleStartGame}
+            boardTheme={boardTheme}
+            setBoardTheme={setBoardTheme}
+          />
+        ) : (
+          <div className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-center lg:items-start lg:justify-center">
+            {/* Board */}
+            <div className="flex-shrink-0 flex justify-center w-full lg:w-auto">
+              <ChessBoard
+                onMove={handleMove}
+                interactive={status === 'playing' || status === 'check'}
+                lightSquareColor={theme.light}
+                darkSquareColor={theme.dark}
+                size={boardSize}
+                showEvalBar={boardSize >= 320}
+                showCoordinates={boardSize >= 280}
+              />
+            </div>
 
-          <div className="w-full lg:w-72 xl:w-80 flex-shrink-0">
-            <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4">
-              <TimerDisplay />
-              <AICoach />
-              <div className="mt-4 pt-4 border-t border-border">
-                <StatusBanner status={status} />
-                {!user && (status === 'checkmate' || status === 'draw') && (
-                  <p className="text-xs text-muted text-center mt-2">
-                    <button onClick={() => setShowAuth(true)} className="text-accent hover:underline">
-                      Sign in
-                    </button>{' '}
-                    to save your result to the leaderboard
-                  </p>
-                )}
-                <button
-                  onClick={() => {
-                    useGameStore.getState().resetGame()
-                    setGameStarted(false)
-                  }}
-                  className="mt-3 w-full py-2.5 rounded-lg border border-border hover:border-accent hover:text-accent text-sm text-muted transition-all"
-                >
-                  New Game
-                </button>
+            {/* Side panel */}
+            <div className="w-full lg:w-72 xl:w-80 flex-shrink-0 fade-in-up">
+              <div className="rounded-2xl overflow-hidden"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 24px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)',
+                }}>
+
+                {/* Timer */}
+                <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <TimerDisplay />
+                </div>
+
+                {/* Coach */}
+                <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <AICoach />
+                </div>
+
+                {/* Status + actions */}
+                <div className="p-4 flex flex-col gap-3">
+                  <StatusBanner status={status} />
+                  {!user && (status === 'checkmate' || status === 'draw') && (
+                    <p className="text-xs text-center" style={{ color: 'var(--muted)', fontFamily: 'var(--font-body)' }}>
+                      <button onClick={() => setShowAuth(true)} className="hover:underline" style={{ color: 'var(--accent)' }}>
+                        Sign in
+                      </button>{' '}
+                      to save your result to the leaderboard
+                    </p>
+                  )}
+                  <button
+                    onClick={() => {
+                      useGameStore.getState().resetGame()
+                      setGameStarted(false)
+                    }}
+                    className="btn-ghost w-full py-2.5 rounded-xl text-xs"
+                  >
+                    ↩ New Game
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </main>
   )
 }
 
+/* ── Timer ── */
 function TimerDisplay() {
   const { whiteTime, blackTime, activeTimer, playerColor } = useGameStore()
   const fmt = (secs: number) => {
@@ -207,36 +242,37 @@ function TimerDisplay() {
     const s = (secs % 60).toString().padStart(2, '0')
     return `${m}:${s}`
   }
+
+  const Clock = ({ color, label, time, active }: { color: 'w'|'b', label: string, time: number, active: boolean }) => (
+    <div className="flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-300"
+      style={{
+        background: active ? 'rgba(200,169,110,0.07)' : 'var(--surface2)',
+        border: `1px solid ${active ? 'var(--accent-dim)' : 'var(--border)'}`,
+        boxShadow: active ? '0 0 16px var(--glow)' : 'none',
+      }}>
+      <span className="text-xs tracking-wide" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>
+        {label}
+      </span>
+      <span className="font-mono text-base font-medium tabular-nums"
+        style={{
+          color: time <= 30 ? 'var(--danger)' : active ? 'var(--accent)' : 'var(--text)',
+          fontFamily: 'var(--font-mono)',
+          textShadow: active ? '0 0 10px var(--glow-strong)' : 'none',
+        }}>
+        {fmt(time)}
+      </span>
+    </div>
+  )
+
   return (
-    <div className="flex sm:flex-col gap-2 mb-4">
-      <div className={`flex flex-1 items-center justify-between px-3 sm:px-4 py-2 rounded-lg border transition-all ${
-        activeTimer === 'b' ? 'border-accent bg-accent/10' : 'border-border'
-      }`}>
-        <span className="text-xs sm:text-sm text-muted truncate mr-2">
-          {playerColor === 'w' ? '🤖 AI (Black)' : '♚ You (Black)'}
-        </span>
-        <span className={`font-mono font-bold text-base sm:text-lg flex-shrink-0 ${
-          activeTimer === 'b' ? 'text-accent' : 'text-text'
-        } ${blackTime <= 30 ? 'text-red-400' : ''}`}>
-          {fmt(blackTime)}
-        </span>
-      </div>
-      <div className={`flex flex-1 items-center justify-between px-3 sm:px-4 py-2 rounded-lg border transition-all ${
-        activeTimer === 'w' ? 'border-accent bg-accent/10' : 'border-border'
-      }`}>
-        <span className="text-xs sm:text-sm text-muted truncate mr-2">
-          {playerColor === 'b' ? '🤖 AI (White)' : '♔ You (White)'}
-        </span>
-        <span className={`font-mono font-bold text-base sm:text-lg flex-shrink-0 ${
-          activeTimer === 'w' ? 'text-accent' : 'text-text'
-        } ${whiteTime <= 30 ? 'text-red-400' : ''}`}>
-          {fmt(whiteTime)}
-        </span>
-      </div>
+    <div className="flex flex-col gap-2">
+      <Clock color="b" label={playerColor === 'w' ? '⚔ Opponent' : '♟ You'} time={blackTime} active={activeTimer === 'b'} />
+      <Clock color="w" label={playerColor === 'b' ? '⚔ Opponent' : '♟ You'} time={whiteTime} active={activeTimer === 'w'} />
     </div>
   )
 }
 
+/* ── Game Setup ── */
 function GameSetup({ onStart, boardTheme, setBoardTheme }: {
   onStart: (config: GameConfig) => void
   boardTheme: ThemeKey
@@ -247,80 +283,110 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
   const [difficulty, setDifficulty] = useState<any>(3)
   const [color, setColor] = useState<'w' | 'b' | 'random'>('w')
 
-  return (
-    <div className="bg-surface border border-border rounded-2xl p-5 sm:p-8 w-full max-w-md flex flex-col gap-4 sm:gap-5">
-      <h2 className="text-lg sm:text-xl font-semibold text-text">New Game</h2>
+  const diffLabels: Record<number, string> = { 1: 'Novice', 2: 'Casual', 3: 'Club', 4: 'Expert', 5: 'Master' }
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs text-muted uppercase tracking-wide">Mode</label>
+  const OptionBtn = ({ active, onClick, children }: { active: boolean, onClick: () => void, children: React.ReactNode }) => (
+    <button onClick={onClick}
+      className="flex-1 py-2.5 rounded-xl text-xs transition-all duration-200"
+      style={{
+        fontFamily: 'var(--font-display)',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        background: active ? 'rgba(200,169,110,0.08)' : 'var(--surface2)',
+        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+        color: active ? 'var(--accent)' : 'var(--text2)',
+        boxShadow: active ? '0 0 12px var(--glow)' : 'none',
+      }}>
+      {children}
+    </button>
+  )
+
+  return (
+    <div className="fade-in-up w-full max-w-md flex flex-col gap-5 rounded-2xl p-6 sm:p-8"
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        boxShadow: '0 32px 96px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.04)',
+      }}>
+
+      {/* Title */}
+      <div className="text-center mb-1">
+        <h2 className="font-display text-2xl tracking-[0.2em] uppercase"
+          style={{ color: 'var(--accent)', textShadow: '0 0 20px rgba(200,169,110,0.25)' }}>
+          New Game
+        </h2>
+        <div className="divider mt-3" />
+      </div>
+
+      {/* Mode */}
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Mode</label>
         <div className="flex gap-2">
-          {(['ai', 'analysis'] as const).map(m => (
-            <button key={m} onClick={() => setMode(m)}
-              className={`flex-1 py-2.5 rounded-lg border text-sm transition-all ${
-                mode === m ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
-              }`}>
-              {m === 'ai' ? '🤖 vs AI' : '🔍 Analysis'}
-            </button>
-          ))}
+          <OptionBtn active={mode === 'ai'} onClick={() => setMode('ai')}>⚔ vs AI</OptionBtn>
+          <OptionBtn active={mode === 'analysis'} onClick={() => setMode('analysis')}>◎ Analysis</OptionBtn>
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs text-muted uppercase tracking-wide">Time Control</label>
+      {/* Time Control */}
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Time Control</label>
         <div className="grid grid-cols-3 gap-2">
           {(['1+0', '3+0', '5+0', '10+0', '15+10', '30+0'] as const).map(tc => (
-            <button key={tc} onClick={() => setTimeControl(tc)}
-              className={`py-2 rounded-lg border text-sm transition-all ${
-                timeControl === tc ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
-              }`}>
-              {tc}
-            </button>
+            <OptionBtn key={tc} active={timeControl === tc} onClick={() => setTimeControl(tc)}>{tc}</OptionBtn>
           ))}
         </div>
       </div>
 
       {mode === 'ai' && (
         <>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-muted uppercase tracking-wide">Difficulty</label>
+          {/* Difficulty */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Difficulty</label>
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map(d => (
                 <button key={d} onClick={() => setDifficulty(d)}
-                  className={`flex-1 py-2.5 rounded-lg border text-sm transition-all ${
-                    difficulty === d ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
-                  }`}>
-                  {d}
+                  className="flex-1 py-2.5 rounded-xl text-xs transition-all duration-200 flex flex-col items-center gap-0.5"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    background: difficulty === d ? 'rgba(200,169,110,0.08)' : 'var(--surface2)',
+                    border: `1px solid ${difficulty === d ? 'var(--accent)' : 'var(--border)'}`,
+                    color: difficulty === d ? 'var(--accent)' : 'var(--text2)',
+                    boxShadow: difficulty === d ? '0 0 12px var(--glow)' : 'none',
+                  }}>
+                  <span className="text-sm font-semibold">{d}</span>
                 </button>
               ))}
             </div>
-            <p className="text-xs text-muted">1 = Easy · 5 = Expert</p>
+            <p className="text-[10px] text-center tracking-wide" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>
+              {diffLabels[difficulty]}
+            </p>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-muted uppercase tracking-wide">Play as</label>
+          {/* Color */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Play as</label>
             <div className="flex gap-2">
               {(['w', 'b', 'random'] as const).map(c => (
-                <button key={c} onClick={() => setColor(c)}
-                  className={`flex-1 py-2.5 rounded-lg border text-sm transition-all ${
-                    color === c ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
-                  }`}>
-                  {c === 'w' ? '♔ White' : c === 'b' ? '♚ Black' : '🎲 Random'}
-                </button>
+                <OptionBtn key={c} active={color === c} onClick={() => setColor(c)}>
+                  {c === 'w' ? '♔ White' : c === 'b' ? '♚ Black' : '⚄ Random'}
+                </OptionBtn>
               ))}
             </div>
           </div>
         </>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs text-muted uppercase tracking-wide">Board Color</label>
+      {/* Board Color */}
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] tracking-[0.2em] uppercase" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Board</label>
         <div className="flex gap-2">
           {(Object.entries(BOARD_THEMES) as [ThemeKey, typeof BOARD_THEMES[ThemeKey]][]).map(([key, t]) => (
-            <button key={key} onClick={() => setBoardTheme(key)}
-              title={t.label}
-              className={`flex-1 h-8 rounded-lg border-2 transition-all overflow-hidden ${
-                boardTheme === key ? 'border-accent' : 'border-transparent'
-              }`}>
+            <button key={key} onClick={() => setBoardTheme(key)} title={t.label}
+              className="flex-1 h-7 rounded-lg overflow-hidden transition-all duration-200"
+              style={{
+                border: `2px solid ${boardTheme === key ? 'var(--accent)' : 'transparent'}`,
+                boxShadow: boardTheme === key ? '0 0 10px var(--glow)' : 'none',
+              }}>
               <div className="flex h-full">
                 <div className="flex-1" style={{ background: t.light }} />
                 <div className="flex-1" style={{ background: t.dark }} />
@@ -330,28 +396,36 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
         </div>
       </div>
 
+      {/* Start */}
       <button
         onClick={() => onStart({ mode, timeControl, difficulty, color })}
-        className="w-full py-3 rounded-xl bg-accent text-black font-semibold hover:brightness-110 transition-all text-base"
+        className="btn-gold w-full py-3.5 rounded-xl mt-1"
+        style={{ fontSize: '0.8rem', letterSpacing: '0.15em' }}
       >
-        Start Game
+        Begin Match
       </button>
     </div>
   )
 }
 
+/* ── Status Banner ── */
 function StatusBanner({ status }: { status: string }) {
-  const messages: Record<string, string> = {
-    playing: '♟ Game in progress',
-    check: '⚠️ Check!',
-    checkmate: '🏁 Checkmate!',
-    stalemate: '🤝 Stalemate — Draw',
-    draw: '🤝 Draw',
-    idle: 'Ready to play',
+  const config: Record<string, { icon: string; color: string; label: string }> = {
+    playing:   { icon: '♟', color: 'var(--text2)',  label: 'In Progress' },
+    check:     { icon: '⚠', color: '#e8a83a',       label: 'Check!' },
+    checkmate: { icon: '♚', color: 'var(--danger)',  label: 'Checkmate' },
+    stalemate: { icon: '⚖', color: 'var(--muted)',   label: 'Stalemate' },
+    draw:      { icon: '⚖', color: 'var(--muted)',   label: 'Draw' },
+    idle:      { icon: '◎', color: 'var(--muted)',   label: 'Ready' },
   }
+  const c = config[status] ?? config.idle
   return (
-    <div className="text-center text-sm font-medium text-text/80">
-      {messages[status] ?? status}
+    <div className="flex items-center justify-center gap-2 py-1">
+      <span style={{ color: c.color, filter: status === 'check' ? 'drop-shadow(0 0 6px rgba(232,168,58,0.6))' : 'none' }}>{c.icon}</span>
+      <span className="text-xs tracking-[0.15em] uppercase"
+        style={{ color: c.color, fontFamily: 'var(--font-display)' }}>
+        {c.label}
+      </span>
     </div>
   )
 }

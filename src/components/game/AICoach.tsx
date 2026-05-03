@@ -3,10 +3,7 @@
 
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Sparkles, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, XCircle, Zap,
-} from 'lucide-react'
+import { Sparkles, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle, Zap } from 'lucide-react'
 import { useGameStore } from '@/store/gameStore'
 import { useStockfish } from '@/hooks/useStockfish'
 import type { MoveAnnotation } from '@/types'
@@ -21,11 +18,11 @@ interface CoachAnalysis {
 }
 
 const ANNOTATION_CONFIG = {
-  best:       { icon: Sparkles,      color: 'text-amber-400',  bg: 'bg-amber-400/10 border-amber-400/20',  label: 'Best move!!' },
-  good:       { icon: CheckCircle,   color: 'text-green-400',  bg: 'bg-green-400/10 border-green-400/20',  label: 'Good move!'  },
-  inaccuracy: { icon: AlertTriangle, color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20',label: 'Inaccuracy ?!'},
-  mistake:    { icon: AlertTriangle, color: 'text-orange-400', bg: 'bg-orange-400/10 border-orange-400/20',label: 'Mistake ?'   },
-  blunder:    { icon: XCircle,       color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',      label: 'Blunder ??'  },
+  best:       { icon: Sparkles,      color: '#c8a96e', bg: 'rgba(200,169,110,0.08)', border: 'rgba(200,169,110,0.2)',  label: 'Best Move' },
+  good:       { icon: CheckCircle,   color: '#4a9060', bg: 'rgba(74,144,96,0.08)',   border: 'rgba(74,144,96,0.2)',    label: 'Good Move' },
+  inaccuracy: { icon: AlertTriangle, color: '#c8a030', bg: 'rgba(200,160,48,0.08)',  border: 'rgba(200,160,48,0.2)',   label: 'Inaccuracy ?!' },
+  mistake:    { icon: AlertTriangle, color: '#c07030', bg: 'rgba(192,112,48,0.08)',  border: 'rgba(192,112,48,0.2)',   label: 'Mistake ?' },
+  blunder:    { icon: XCircle,       color: '#c0503a', bg: 'rgba(192,80,58,0.08)',   border: 'rgba(192,80,58,0.2)',    label: 'Blunder ??' },
 }
 
 function annotateMove(evalBefore: number, evalAfter: number, color: 'w' | 'b'): MoveAnnotation['type'] {
@@ -39,14 +36,14 @@ function annotateMove(evalBefore: number, evalAfter: number, color: 'w' | 'b'): 
 }
 
 function makeMessage(type: MoveAnnotation['type'], san: string, bestMove?: string, delta?: number): string {
-  const loss   = delta !== undefined ? Math.abs(delta).toFixed(2) : ''
-  const better = bestMove ? ` Better was ${bestMove}.` : ''
+  const loss = delta !== undefined ? Math.abs(delta).toFixed(2) : ''
+  const better = bestMove ? ` Consider ${bestMove} instead.` : ''
   const pool: Record<MoveAnnotation['type'], string[]> = {
-    best:       [`${san} is the engine's top choice — perfect play!`, `Excellent! ${san} is exactly right.`],
-    good:       [`${san} is a solid move.`, `Good choice! ${san} keeps the balance.`],
-    inaccuracy: [`${san} is slightly inaccurate (−${loss} pawns).${better}`, `Small imprecision with ${san}.${better}`],
-    mistake:    [`${san} is a mistake (−${loss} pawns).${better}`, `${san} loses some advantage.${better}`],
-    blunder:    [`${san} is a blunder! (−${loss} pawns).${better}`, `Ouch — ${san} throws away material.${better}`],
+    best:       [`${san} is the engine's choice — flawless.`, `Precisely right. ${san} is the strongest continuation.`],
+    good:       [`${san} is solid — well played.`, `A fine move. ${san} keeps the balance.`],
+    inaccuracy: [`${san} loses a touch of advantage (−${loss}).${better}`, `Small imprecision with ${san}.${better}`],
+    mistake:    [`${san} concedes ground (−${loss} pawns).${better}`, `${san} weakens your position.${better}`],
+    blunder:    [`${san} throws away material! (−${loss} pawns).${better}`, `A serious error — ${san} costs you dearly.${better}`],
   }
   const p = pool[type]
   return p[Math.floor(Math.random() * p.length)]
@@ -59,20 +56,20 @@ function calcAccuracy(moves: CoachAnalysis[], color: 'w' | 'b'): number | null {
   return Math.round(mine.reduce((sum, m) => sum + weights[m.type], 0) / mine.length)
 }
 
-function accuracyColor(acc: number | null) {
-  if (acc === null) return 'text-muted'
-  if (acc >= 85) return 'text-green-400'
-  if (acc >= 65) return 'text-amber-400'
-  return 'text-red-400'
+function accuracyColor(acc: number | null): string {
+  if (acc === null) return 'var(--muted)'
+  if (acc >= 85) return '#4a9060'
+  if (acc >= 65) return '#c8a96e'
+  return '#c0503a'
 }
 
 export function AICoach() {
   const { coachMessage, moveHistory, isAIThinking, chess, playerColor, liveWhiteAccuracy, liveBlackAccuracy } = useGameStore()
-  const [isExpanded,       setIsExpanded]      = useState(false)
-  const [fullAnalysis,     setFullAnalysis]     = useState<CoachAnalysis[]>([])
-  const [isAnalyzing,      setIsAnalyzing]      = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [fullAnalysis, setFullAnalysis] = useState<CoachAnalysis[]>([])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
-  const [errorMsg,         setErrorMsg]         = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const { analyzeGame } = useStockfish()
 
   const runFullAnalysis = useCallback(async () => {
@@ -82,40 +79,36 @@ export function AICoach() {
     setAnalysisProgress(0)
     setFullAnalysis([])
     setErrorMsg(null)
-    const pgn   = chess.pgn()
+    const pgn = chess.pgn()
     const total = moveHistory.length
     try {
       const positions = await analyzeGame(pgn, setAnalysisProgress)
-      const sfWorked  = positions.length >= total + 1 && positions.some(p => p.bestMove !== null)
+      const sfWorked = positions.length >= total + 1 && positions.some(p => p.bestMove !== null)
       if (!sfWorked) { setErrorMsg('Engine analysis failed.'); setIsAnalyzing(false); return }
       const analyses: CoachAnalysis[] = []
       for (let i = 0; i < total; i++) {
-        const move       = moveHistory[i]
-        const evalBefore = positions[i]?.evaluation     ?? 0
-        const evalAfter  = positions[i + 1]?.evaluation ?? 0
-        const engineBest = positions[i]?.bestMove       ?? undefined
-        const delta      = move.color === 'w' ? evalAfter - evalBefore : evalBefore - evalAfter
-        const type       = annotateMove(evalBefore, evalAfter, move.color as 'w' | 'b')
+        const move = moveHistory[i]
+        const evalBefore = positions[i]?.evaluation ?? 0
+        const evalAfter = positions[i + 1]?.evaluation ?? 0
+        const engineBest = positions[i]?.bestMove ?? undefined
+        const delta = move.color === 'w' ? evalAfter - evalBefore : evalBefore - evalAfter
+        const type = annotateMove(evalBefore, evalAfter, move.color as 'w' | 'b')
         analyses.push({ type, color: move.color as 'w' | 'b', message: makeMessage(type, move.san, engineBest, delta), bestMove: type !== 'best' && type !== 'good' ? engineBest : undefined, evalDelta: delta })
       }
       setFullAnalysis(analyses)
-    } catch (err) {
+    } catch {
       setErrorMsg('Analysis failed. Please try again.')
     }
     setIsAnalyzing(false)
   }, [moveHistory, chess, analyzeGame])
 
   const myColor: 'w' | 'b' = playerColor === 'b' ? 'b' : 'w'
-
-  // Use deep analysis accuracy when available, otherwise show live accuracy
   const whiteAccuracy = fullAnalysis.length ? calcAccuracy(fullAnalysis, 'w') : liveWhiteAccuracy
   const blackAccuracy = fullAnalysis.length ? calcAccuracy(fullAnalysis, 'b') : liveBlackAccuracy
-
-  const blunders     = fullAnalysis.filter(a => a.color === myColor && a.type === 'blunder').length
-  const mistakes     = fullAnalysis.filter(a => a.color === myColor && a.type === 'mistake').length
+  const blunders = fullAnalysis.filter(a => a.color === myColor && a.type === 'blunder').length
+  const mistakes = fullAnalysis.filter(a => a.color === myColor && a.type === 'mistake').length
   const inaccuracies = fullAnalysis.filter(a => a.color === myColor && a.type === 'inaccuracy').length
-  const lastMove     = moveHistory[moveHistory.length - 1]
-  const config       = lastMove?.annotation ? ANNOTATION_CONFIG[lastMove.annotation.type] : null
+  const lastMove = moveHistory[moveHistory.length - 1]
   const notableMoves = fullAnalysis.filter(a => a.type !== 'best' && a.type !== 'good')
 
   return (
@@ -123,96 +116,165 @@ export function AICoach() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-amber-400/15 flex items-center justify-center">
-            <Sparkles size={14} className="text-amber-400" />
-          </div>
-          <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">KnightOwl AI Coach</span>
+          <Sparkles size={13} style={{ color: 'var(--accent)' }} />
+          <span className="text-[10px] tracking-[0.2em] uppercase"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>
+            KnightOwl Coach
+          </span>
         </div>
         {isAIThinking && (
-          <div className="flex items-center gap-1.5 text-xs text-muted">
-            <Zap size={12} className="animate-pulse" />
-            Thinking...
+          <div className="flex items-center gap-1.5">
+            <div className="thinking-pulse flex gap-0.5">
+              {[0, 1, 2].map(i => (
+                <span key={i} className="w-1 h-1 rounded-full" style={{ background: 'var(--accent)', animationDelay: `${i * 0.2}s` }} />
+              ))}
+            </div>
+            <span className="text-[10px] tracking-wide" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>
+              Thinking
+            </span>
           </div>
         )}
       </div>
 
       {/* Current move annotation */}
       <AnimatePresence mode="wait">
-        {config && lastMove ? (
-          <motion.div key={lastMove.san} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className={clsx('rounded-xl border p-3', config.bg)}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <config.icon size={14} className={config.color} />
-              <span className={clsx('text-xs font-semibold', config.color)}>{config.label}</span>
-              <code className="text-xs bg-black/20 px-1.5 py-0.5 rounded font-mono ml-auto">{lastMove.san}</code>
-            </div>
-            <p className="text-xs text-text/80 leading-relaxed">{coachMessage}</p>
+        {lastMove ? (
+          <motion.div
+            key={lastMove.san}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            className="rounded-xl p-3"
+            style={{
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--text2)', fontFamily: 'var(--font-body)' }}>
+              {coachMessage}
+            </p>
           </motion.div>
         ) : (
-          <motion.div key="default" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-surface2 p-3">
-            <p className="text-xs text-muted leading-relaxed">{coachMessage}</p>
+          <motion.div
+            key="default"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="rounded-xl p-3"
+            style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
+          >
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--muted)', fontFamily: 'var(--font-body)' }}>
+              {coachMessage}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Analysis section */}
+      {/* Analysis trigger */}
       {moveHistory.length > 0 && (
         <div>
           <button
             onClick={() => fullAnalysis.length ? setIsExpanded(!isExpanded) : runFullAnalysis()}
             disabled={isAnalyzing}
-            className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border hover:border-border2 hover:bg-surface2 transition-all text-xs text-muted group"
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200"
+            style={{
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              color: 'var(--muted)',
+              fontFamily: 'var(--font-display)',
+              fontSize: '0.68rem',
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+            }}
+            onMouseEnter={e => {
+              const t = e.currentTarget
+              t.style.borderColor = 'var(--border2)'
+              t.style.color = 'var(--text2)'
+            }}
+            onMouseLeave={e => {
+              const t = e.currentTarget
+              t.style.borderColor = 'var(--border)'
+              t.style.color = 'var(--muted)'
+            }}
           >
-            <span className="group-hover:text-text transition-colors">
-              {isAnalyzing ? `Analyzing... ${analysisProgress}%` : fullAnalysis.length ? 'Game Analysis' : 'Analyze Full Game'}
+            <span>
+              {isAnalyzing ? `Analysing ${analysisProgress}%` : fullAnalysis.length ? 'Game Analysis' : 'Analyse Game'}
             </span>
             {isAnalyzing
-              ? <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              : isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+              ? <div className="w-3 h-3 rounded-full border-2" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
+              : isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />
             }
           </button>
 
           {isAnalyzing && (
-            <div className="mt-1 h-1 rounded-full bg-surface2 overflow-hidden">
-              <motion.div className="h-full bg-accent rounded-full" animate={{ width: `${analysisProgress}%` }} transition={{ duration: 0.3 }} />
+            <div className="mt-1.5 h-0.5 rounded-full overflow-hidden" style={{ background: 'var(--surface3)' }}>
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, var(--accent), var(--accent2))' }}
+                animate={{ width: `${analysisProgress}%` }}
+                transition={{ duration: 0.3 }}
+              />
             </div>
           )}
 
-          {errorMsg && <p className="mt-2 text-xs text-red-400 text-center px-2">{errorMsg}</p>}
+          {errorMsg && (
+            <p className="mt-2 text-xs text-center" style={{ color: 'var(--danger)', fontFamily: 'var(--font-body)' }}>
+              {errorMsg}
+            </p>
+          )}
 
           <AnimatePresence>
             {isExpanded && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-
-                {/* Error counts + move list — only after full analysis */}
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
                 {fullAnalysis.length > 0 && (
                   <>
+                    {/* Accuracy grid */}
                     <div className="grid grid-cols-2 gap-2 mt-3">
                       {([['♔ White', whiteAccuracy], ['♚ Black', blackAccuracy]] as const).map(([label, acc]) => (
-                        <div key={label} className="rounded-lg bg-surface2 p-2 text-center">
-                          <motion.div key={acc} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={clsx('text-base font-bold font-mono', accuracyColor(acc))}>
+                        <div key={label} className="rounded-xl p-3 text-center"
+                          style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                          <motion.div
+                            key={acc}
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="text-xl font-bold tabular-nums"
+                            style={{ color: accuracyColor(acc), fontFamily: 'var(--font-mono)' }}
+                          >
                             {acc !== null ? `${acc}%` : '—'}
                           </motion.div>
-                          <div className="text-[9px] text-muted mt-0.5">{label}</div>
+                          <div className="text-[10px] mt-0.5 tracking-wide"
+                            style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>
+                            {label}
+                          </div>
                         </div>
                       ))}
                     </div>
+
+                    {/* Error counts */}
                     <div className="grid grid-cols-3 gap-1.5 mt-2">
-                      <div className="rounded-lg bg-surface2 p-2 text-center">
-                        <div className="text-base font-bold font-mono text-yellow-400">{inaccuracies}</div>
-                        <div className="text-[9px] text-muted mt-0.5">?! Inaccuracy</div>
-                      </div>
-                      <div className="rounded-lg bg-surface2 p-2 text-center">
-                        <div className="text-base font-bold font-mono text-orange-400">{mistakes}</div>
-                        <div className="text-[9px] text-muted mt-0.5">? Mistake</div>
-                      </div>
-                      <div className="rounded-lg bg-surface2 p-2 text-center">
-                        <div className="text-base font-bold font-mono text-red-400">{blunders}</div>
-                        <div className="text-[9px] text-muted mt-0.5">?? Blunder</div>
-                      </div>
+                      {[
+                        { count: inaccuracies, label: '?! Inaccuracy', color: '#c8a030' },
+                        { count: mistakes,     label: '? Mistake',     color: '#c07030' },
+                        { count: blunders,     label: '?? Blunder',    color: '#c0503a' },
+                      ].map(({ count, label, color }) => (
+                        <div key={label} className="rounded-xl p-2 text-center"
+                          style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                          <div className="text-base font-bold tabular-nums" style={{ color, fontFamily: 'var(--font-mono)' }}>{count}</div>
+                          <div className="text-[9px] mt-0.5 tracking-wide" style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>{label}</div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="mt-3 flex flex-col gap-1 max-h-60 overflow-y-auto">
+
+                    {/* Move list */}
+                    <div className="mt-3 flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-0.5">
                       {notableMoves.length === 0 ? (
-                        <div className="text-center py-4 text-xs text-green-400">✨ Clean game! No inaccuracies or mistakes found.</div>
+                        <div className="text-center py-5 text-sm" style={{ color: '#4a9060', fontFamily: 'var(--font-body)' }}>
+                          ✦ Clean game — no serious errors found.
+                        </div>
                       ) : (
                         fullAnalysis.map((a, i) => {
                           if (a.type === 'best' || a.type === 'good') return null
@@ -220,20 +282,32 @@ export function AICoach() {
                           if (!move) return null
                           const cfg = ANNOTATION_CONFIG[a.type]
                           return (
-                            <div key={i} className={clsx('rounded-lg p-2 border text-xs', cfg.bg)}>
-                              <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="text-muted font-mono">{Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '...'}</span>
-                                <code className={clsx('font-mono font-medium', cfg.color)}>{move.san}</code>
+                            <div key={i} className="rounded-xl p-2.5"
+                              style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs" style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                                  {Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '…'}
+                                </span>
+                                <code className="text-xs font-medium" style={{ color: cfg.color, fontFamily: 'var(--font-mono)' }}>
+                                  {move.san}
+                                </code>
                                 {a.evalDelta !== undefined && (
-                                  <span className="text-[9px] text-muted ml-1">({a.evalDelta > 0 ? '+' : ''}{a.evalDelta.toFixed(2)})</span>
+                                  <span className="text-[9px]" style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                                    ({a.evalDelta > 0 ? '+' : ''}{a.evalDelta.toFixed(2)})
+                                  </span>
                                 )}
-                                <span className={clsx('ml-auto text-[10px] font-medium', cfg.color)}>{cfg.label}</span>
+                                <span className="ml-auto text-[10px] tracking-wide"
+                                  style={{ color: cfg.color, fontFamily: 'var(--font-display)' }}>
+                                  {cfg.label}
+                                </span>
                               </div>
-                              <p className="text-text/70 leading-relaxed">{a.message}</p>
+                              <p className="text-xs leading-relaxed" style={{ color: 'var(--text2)', fontFamily: 'var(--font-body)' }}>
+                                {a.message}
+                              </p>
                               {a.bestMove && (
-                                <div className="mt-1 text-[10px]">
-                                  <span className="text-muted">Better: </span>
-                                  <code className="text-amber-400 font-mono">{a.bestMove}</code>
+                                <div className="mt-1.5 text-[10px]">
+                                  <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-display)' }}>Better: </span>
+                                  <code style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{a.bestMove}</code>
                                 </div>
                               )}
                             </div>
@@ -248,6 +322,12 @@ export function AICoach() {
           </AnimatePresence>
         </div>
       )}
+
+      <style jsx global>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   )
 }
