@@ -189,27 +189,36 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       const cfg = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
 
-      // Apply difficulty settings (no-op if already set)
+      // Levels 1–3: pure random moves — simple and always works
+      if (cfg.limitStrength) {
+        setAIThinking(true)
+        import('chess.js').then(({ Chess }) => {
+          const c = new Chess(fen)
+          const moves = c.moves({ verbose: true })
+          if (moves.length) {
+            const m = moves[Math.floor(Math.random() * moves.length)]
+            setTimeout(() => {
+              onMove(m.from, m.to, m.promotion)
+              setAIThinking(false)
+            }, 400)
+          } else {
+            setAIThinking(false)
+          }
+        })
+        return
+      }
+
+      // Levels 4–5: unchanged Stockfish behaviour
       applyDifficultyOptions(difficulty)
 
       setAIThinking(true)
-
-      if (cfg.limitStrength) {
-        // Levels 1–3: clear any stale pending callback that could block future moves
-        pendingRef.current = null
-      }
-
       bufferRef.current  = {}
-
       pendingRef.current = (result) => {
         if (result.bestMove) {
           const from  = result.bestMove.slice(0, 2)
           const to    = result.bestMove.slice(2, 4)
           const promo = result.bestMove.length === 5 ? result.bestMove[4] : undefined
-
-          // Small human-like delay — shorter for easier levels, longer for harder
-          const delay = cfg.limitStrength ? 250 : 150
-          setTimeout(() => onMove(from, to, promo), delay)
+          setTimeout(() => onMove(from, to, promo), 150)
         } else {
           setAIThinking(false)
         }
@@ -217,7 +226,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       send('stop')
       send(`position fen ${fen}`)
-      // Use both depth limit AND movetime so harder levels feel more deliberate
       send(`go depth ${cfg.depth} movetime ${cfg.moveTime}`)
     },
     [difficulty, send, setAIThinking, applyDifficultyOptions]
