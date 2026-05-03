@@ -6,7 +6,7 @@ import { useGameStore } from '@/store/gameStore'
 
 export interface StockfishAnalysis {
   bestMove: string | null
-  evaluation: number
+  evaluation: number // pawns, White's POV
   depth: number
   pv: string[]
   mate: number | null
@@ -17,258 +17,204 @@ interface UseStockfishOptions {
   onAnalysis?: (analysis: StockfishAnalysis) => void
 }
 
-// Difficulty settings: [depth, skillLevel, moveTime]
 const DIFFICULTY_CONFIG: Record<number, [number, number, number]> = {
-  1: [1, 0, 200],
-  2: [3, 5, 400],
-  3: [5, 10, 600],
-  4: [8, 15, 1000],
+  1: [1,  0,  200],
+  2: [3,  5,  400],
+  3: [5,  10, 600],
+  4: [8,  15, 1000],
   5: [15, 20, 2000],
 }
 
 export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {}) {
-  const engineRef = useRef<Worker | null>(null)
-  const [isReady, setIsReady] = useState(false)
+  const engineRef  = useRef<Worker | null>(null)
+  // Single pending resolver — only one command runs at a time
+  const pendingRef = useRef<((a: StockfishAnalysis) => void) | null>(null)
+  const bufferRef  = useRef<Partial<StockfishAnalysis>>({})
+  const isReadyRef = useRef(false)
+
+  const [isReady, setIsReady]   = useState(false)
   const [analysis, setAnalysis] = useState<StockfishAnalysis | null>(null)
-  const analysisBuffer = useRef<Partial<StockfishAnalysis>>({})
+
   const { setEvalScore, setAIThinking, difficulty } = useGameStore()
 
+  // ── Boot engine ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const initEngine = async () => {
-      try {
-        const worker = new Worker('/stockfish/stockfish.js')
-
-        worker.onmessage = (e: MessageEvent) => {
-          const line: string = typeof e.data === 'string' ? e.data : e.data.toString()
-          handleEngineOutput(line)
-        }
-
-        worker.onerror = (err) => {
-          console.error('Stockfish error:', err)
-        }
-
-        engineRef.current = worker
-        worker.postMessage('uci')
-        worker.postMessage('isready')
-      } catch (err) {
-        console.warn('Stockfish WASM not available, using fallback:', err)
-        setIsReady(true)
-      }
+    let worker: Worker
+    try {
+      worker = new Worker('/stockfish/stockfish.js')
+    } catch {
+      console.warn('Stockfish not available')
+      setIsReady(true)
+      isReadyRef.current = true
+      return
     }
 
-    initEngine()
-    return () => {
-      engineRef.current?.terminate()
-    }
-  }, [])
+    worker.onerror = (e) => console.error('Stockfish:', e)
 
-  const handleEngineOutput = useCallback(
-    (line: string) => {
+    worker.onmessage = (e: MessageEvent) => {
+      const line: string = typeof e.data === 'string' ? e.data : String(e.data)
+
       if (line === 'readyok') {
         setIsReady(true)
+        isReadyRef.current = true
         return
       }
 
       if (line.startsWith('info')) {
-        const depthMatch = line.match(/depth (\d+)/)
-        if (depthMatch) analysisBuffer.current.depth = parseInt(depthMatch[1])
-
-        const scoreMatch = line.match(/score cp (-?\d+)/)
+        const cpMatch   = line.match(/score cp (-?\d+)/)
         const mateMatch = line.match(/score mate (-?\d+)/)
+        const pvMatch   = line.match(/ pv (.+)$/)
+        const dMatch    = line.match(/depth (\d+)/)
 
-        if (scoreMatch) {
-          const cp = parseInt(scoreMatch[1])
-          analysisBuffer.current.evaluation = cp / 100
-          setEvalScore(cp / 100)
+        if (cpMatch) {
+          const val = parseInt(cpMatch[1]) / 100
+          bufferRef.current.evaluation = val
+          setEvalScore(val)
         }
         if (mateMatch) {
-          analysisBuffer.current.mate = parseInt(mateMatch[1])
-          analysisBuffer.current.evaluation = mateMatch[1].startsWith('-') ? -100 : 100
+          const m = parseInt(mateMatch[1])
+          bufferRef.current.mate = m
+          bufferRef.current.evaluation = m > 0 ? 100 : -100
+          setEvalScore(bufferRef.current.evaluation)
         }
-
-        const pvMatch = line.match(/pv (.+)$/)
         if (pvMatch) {
-          analysisBuffer.current.pv = pvMatch[1].split(' ')
+          bufferRef.current.pv       = pvMatch[1].split(' ')
+          bufferRef.current.bestMove = bufferRef.current.pv[0]
         }
+        if (dMatch) bufferRef.current.depth = parseInt(dMatch[1])
+        return
       }
 
       if (line.startsWith('bestmove')) {
-        const parts = line.split(' ')
-        const bestMove = parts[1]
-
-        if (bestMove && bestMove !== '(none)') {
-          const finalAnalysis: StockfishAnalysis = {
-            bestMove,
-            evaluation: analysisBuffer.current.evaluation ?? 0,
-            depth: analysisBuffer.current.depth ?? 0,
-            pv: analysisBuffer.current.pv ?? [],
-            mate: analysisBuffer.current.mate ?? null,
-          }
-
-          setAnalysis(finalAnalysis)
-          onAnalysis?.(finalAnalysis)
-          analysisBuffer.current = {}
+        const bm = line.split(' ')[1]
+        const result: StockfishAnalysis = {
+          bestMove:   bm && bm !== '(none)' ? bm : null,
+          evaluation: bufferRef.current.evaluation ?? 0,
+          depth:      bufferRef.current.depth      ?? 0,
+          pv:         bufferRef.current.pv         ?? [],
+          mate:       bufferRef.current.mate       ?? null,
         }
-
+        bufferRef.current = {}
+        setAnalysis(result)
         setAIThinking(false)
-      }
-    },
-    [setEvalScore, setAIThinking, onAnalysis]
-  )
+        onAnalysis?.(result)
 
-  const sendCommand = useCallback((cmd: string) => {
+        // Resolve the waiting promise if any
+        if (pendingRef.current) {
+          pendingRef.current(result)
+          pendingRef.current = null
+        }
+      }
+    }
+
+    engineRef.current = worker
+    worker.postMessage('uci')
+    worker.postMessage('isready')
+    return () => worker.terminate()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const send = useCallback((cmd: string) => {
     engineRef.current?.postMessage(cmd)
   }, [])
 
+  // ── Fire-and-forget: updates eval bar live ─────────────────────────────────
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
-      if (!isReady || !engineRef.current) return
-      sendCommand('stop')
-      sendCommand(`position fen ${fen}`)
-      sendCommand(`go depth ${searchDepth}`)
+      if (!isReadyRef.current || !engineRef.current) return
+      bufferRef.current = {}
+      send('stop')
+      send(`position fen ${fen}`)
+      send(`go depth ${searchDepth}`)
     },
-    [isReady, depth, sendCommand]
+    [depth, send]
   )
 
-  const getBestMove = useCallback(
-    (fen: string) => {
-      if (!isReady || !engineRef.current) return
-      const [depthVal, skillLevel, moveTime] = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
+  // ── AI move ────────────────────────────────────────────────────────────────
+  const playAIMove = useCallback(
+    (fen: string, onMove: (from: string, to: string, promo?: string) => void) => {
+      if (!isReadyRef.current || !engineRef.current) {
+        import('chess.js').then(({ Chess }) => {
+          const c = new Chess(fen)
+          const moves = c.moves({ verbose: true })
+          if (moves.length) {
+            const m = moves[Math.floor(Math.random() * moves.length)]
+            setTimeout(() => onMove(m.from, m.to, m.promotion), 500)
+          }
+        })
+        return
+      }
+
+      const [depthVal, skillLevel, moveTime] =
+        DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
+
       setAIThinking(true)
-      sendCommand('stop')
-      sendCommand(`setoption name Skill Level value ${skillLevel}`)
-      sendCommand(`position fen ${fen}`)
-      sendCommand(`go depth ${depthVal} movetime ${moveTime}`)
+      bufferRef.current  = {}
+      pendingRef.current = (result) => {
+        if (result.bestMove) {
+          const from  = result.bestMove.slice(0, 2)
+          const to    = result.bestMove.slice(2, 4)
+          const promo = result.bestMove.length === 5 ? result.bestMove[4] : undefined
+          setTimeout(() => onMove(from, to, promo), 100)
+        }
+      }
+
+      send('stop')
+      send(`setoption name Skill Level value ${skillLevel}`)
+      send(`position fen ${fen}`)
+      send(`go depth ${depthVal} movetime ${moveTime}`)
     },
-    [isReady, difficulty, sendCommand, setAIThinking]
+    [difficulty, send, setAIThinking]
   )
 
-  // ✅ FIXED: analyzeGame now uses onmessage (not addEventListener) on the Worker
-  // and correctly resolves each position before moving to the next.
+  // ── Post-game analysis ─────────────────────────────────────────────────────
+  // Awaits each position before sending the next — safe with single worker.
   const analyzeGame = useCallback(
-    async (pgn: string): Promise<StockfishAnalysis[]> => {
-      if (!isReady || !engineRef.current) return []
+    async (
+      pgn: string,
+      onProgress?: (pct: number) => void
+    ): Promise<StockfishAnalysis[]> => {
+      if (!isReadyRef.current || !engineRef.current) return []
 
       const { Chess } = await import('chess.js')
       const chess = new Chess()
       chess.loadPgn(pgn)
 
-      // Build list of FENs: one per position (before each move + final)
-      const positions: string[] = []
-      const tempChess = new Chess()
-      positions.push(tempChess.fen())
-      for (const move of chess.history()) {
-        tempChess.move(move)
-        positions.push(tempChess.fen())
+      // Build FEN list: starting position + one after each move
+      const fens: string[] = []
+      const tmp = new Chess()
+      fens.push(tmp.fen())
+      for (const mv of chess.history()) {
+        tmp.move(mv)
+        fens.push(tmp.fen())
       }
 
-      const analyses: StockfishAnalysis[] = []
+      const results: StockfishAnalysis[] = []
+      send('stop') // cancel any live analysis first
 
-      for (const fen of positions) {
+      for (let i = 0; i < fens.length; i++) {
+        // eslint-disable-next-line no-await-in-loop
         const result = await new Promise<StockfishAnalysis>((resolve) => {
-          const buffer: Partial<StockfishAnalysis> = {}
-
-          // ✅ KEY FIX: save and restore onmessage instead of addEventListener
-          const previousHandler = engineRef.current!.onmessage
-
-          engineRef.current!.onmessage = (e: MessageEvent) => {
-            const line: string = typeof e.data === 'string' ? e.data : e.data.toString()
-
-            if (line.startsWith('info')) {
-              const scoreMatch = line.match(/score cp (-?\d+)/)
-              const mateMatch = line.match(/score mate (-?\d+)/)
-              if (scoreMatch) buffer.evaluation = parseInt(scoreMatch[1]) / 100
-              if (mateMatch) {
-                buffer.mate = parseInt(mateMatch[1])
-                buffer.evaluation = mateMatch[1].startsWith('-') ? -100 : 100
-              }
-              const pvMatch = line.match(/pv (.+)$/)
-              if (pvMatch) {
-                buffer.pv = pvMatch[1].split(' ')
-                buffer.bestMove = buffer.pv[0]
-              }
-              const depthMatch = line.match(/depth (\d+)/)
-              if (depthMatch) buffer.depth = parseInt(depthMatch[1])
-            }
-
-            if (line.startsWith('bestmove')) {
-              // Restore main handler before resolving
-              engineRef.current!.onmessage = previousHandler as (e: MessageEvent) => void
-
-              const bestMove = line.split(' ')[1]
-              resolve({
-                bestMove: bestMove && bestMove !== '(none)' ? bestMove : null,
-                evaluation: buffer.evaluation ?? 0,
-                depth: buffer.depth ?? 12,
-                pv: buffer.pv ?? [],
-                mate: buffer.mate ?? null,
-              })
-            }
-          }
-
-          sendCommand(`position fen ${fen}`)
-          sendCommand('go depth 12')
+          bufferRef.current  = {}
+          pendingRef.current = resolve
+          send(`position fen ${fens[i]}`)
+          send('go depth 14')
         })
-
-        analyses.push(result)
+        results.push(result)
+        onProgress?.(Math.round(((i + 1) / fens.length) * 100))
       }
 
-      return analyses
+      return results
     },
-    [isReady, sendCommand]
-  )
-
-  const playAIMove = useCallback(
-    (fen: string, onMove: (from: string, to: string, promo?: string) => void) => {
-      if (!isReady) {
-        setTimeout(async () => {
-          const { Chess } = await import('chess.js')
-          const chess = new Chess(fen)
-          const moves = chess.moves({ verbose: true })
-          if (moves.length) {
-            const move = moves[Math.floor(Math.random() * moves.length)]
-            onMove(move.from, move.to, move.promotion)
-          }
-        }, 500)
-        return
-      }
-
-      const [depthVal, skillLevel, moveTime] = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
-      const previousHandler = engineRef.current!.onmessage
-
-      engineRef.current!.onmessage = (e: MessageEvent) => {
-        const line: string = typeof e.data === 'string' ? e.data : e.data.toString()
-
-        if (line.startsWith('bestmove')) {
-          engineRef.current!.onmessage = previousHandler as (e: MessageEvent) => void
-          setAIThinking(false)
-
-          const bestMove = line.split(' ')[1]
-          if (bestMove && bestMove !== '(none)') {
-            const from = bestMove.slice(0, 2)
-            const to = bestMove.slice(2, 4)
-            const promo = bestMove.length === 5 ? bestMove[4] : undefined
-            setTimeout(() => onMove(from, to, promo), 100)
-          }
-        }
-      }
-
-      setAIThinking(true)
-      sendCommand('stop')
-      sendCommand(`setoption name Skill Level value ${skillLevel}`)
-      sendCommand(`position fen ${fen}`)
-      sendCommand(`go depth ${depthVal} movetime ${moveTime}`)
-    },
-    [isReady, difficulty, sendCommand, setAIThinking]
+    [send]
   )
 
   return {
     isReady,
     analysis,
     analyzePosition,
-    getBestMove,
     analyzeGame,
     playAIMove,
-    sendCommand,
+    sendCommand: send,
   }
 }
