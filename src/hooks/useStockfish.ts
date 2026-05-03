@@ -6,7 +6,7 @@ import { useGameStore } from '@/store/gameStore'
 
 export interface StockfishAnalysis {
   bestMove: string | null
-  evaluation: number // pawns, White's POV
+  evaluation: number
   depth: number
   pv: string[]
   mate: number | null
@@ -36,7 +36,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
   const { setEvalScore, setAIThinking, difficulty } = useGameStore()
 
-  // ── Boot engine ─────────────────────────────────────────────────────────────
   useEffect(() => {
     let worker: Worker
     try {
@@ -48,7 +47,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       return
     }
 
-    worker.onerror = (e) => console.error('Stockfish:', e)
+    worker.onerror = (e) => console.error('Stockfish worker error:', e)
 
     worker.onmessage = (e: MessageEvent) => {
       const line: string = typeof e.data === 'string' ? e.data : String(e.data)
@@ -68,18 +67,13 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         if (cpMatch) {
           const val = parseInt(cpMatch[1]) / 100
           bufferRef.current.evaluation = val
-          // Only update live eval bar when not doing batch analysis (no pending promise)
-          if (!pendingRef.current) {
-            setEvalScore(val)
-          }
+          if (!pendingRef.current) setEvalScore(val)
         }
         if (mateMatch) {
           const m = parseInt(mateMatch[1])
           bufferRef.current.mate = m
           bufferRef.current.evaluation = m > 0 ? 100 : -100
-          if (!pendingRef.current) {
-            setEvalScore(bufferRef.current.evaluation)
-          }
+          if (!pendingRef.current) setEvalScore(bufferRef.current.evaluation)
         }
         if (pvMatch) {
           bufferRef.current.pv       = pvMatch[1].split(' ')
@@ -103,9 +97,12 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         setAIThinking(false)
         onAnalysis?.(result)
 
+        // Resolve the pending promise and clear it BEFORE calling resolve
+        // so that the next iteration can set a new pendingRef immediately
         if (pendingRef.current) {
-          pendingRef.current(result)
+          const resolve = pendingRef.current
           pendingRef.current = null
+          resolve(result)
         }
       }
     }
@@ -121,12 +118,10 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     engineRef.current?.postMessage(cmd)
   }, [])
 
-  // ── Live eval bar: call this after every move ───────────────────────────────
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
       if (!isReadyRef.current || !engineRef.current) return
-      // Don't interrupt a pending AI move or batch analysis
-      if (pendingRef.current) return
+      if (pendingRef.current) return // batch analysis in progress, don't interrupt
       bufferRef.current = {}
       send('stop')
       send(`position fen ${fen}`)
@@ -135,7 +130,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [depth, send]
   )
 
-  // ── AI move ────────────────────────────────────────────────────────────────
   const playAIMove = useCallback(
     (fen: string, onMove: (from: string, to: string, promo?: string) => void) => {
       if (!isReadyRef.current || !engineRef.current) {
@@ -172,23 +166,21 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [difficulty, send, setAIThinking]
   )
 
-  // ── Post-game analysis ─────────────────────────────────────────────────────
-  // Returns evals for starting position + after each move (N+1 entries for N moves).
-  // Uses depth 14 with a 2-second per-position timeout for reliability.
   const analyzeGame = useCallback(
     async (
       pgn: string,
       onProgress?: (pct: number) => void
     ): Promise<StockfishAnalysis[]> => {
-      if (!engineRef.current) return []
-
-      // If engine isn't ready yet, wait up to 5s
+      // Wait for engine ready (up to 8s)
       if (!isReadyRef.current) {
         await new Promise<void>((res) => {
+          const start = Date.now()
           const check = setInterval(() => {
-            if (isReadyRef.current) { clearInterval(check); res() }
+            if (isReadyRef.current || Date.now() - start > 8000) {
+              clearInterval(check)
+              res()
+            }
           }, 100)
-          setTimeout(() => { clearInterval(check); res() }, 5000)
         })
       }
 
@@ -196,14 +188,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       const { Chess } = await import('chess.js')
       const chess = new Chess()
+      try { chess.loadPgn(pgn) } catch { return [] }
 
-      try {
-        chess.loadPgn(pgn)
-      } catch {
-        return []
-      }
-
-      // Build FEN list: starting position + one after each move
+      // Build FEN list
       const fens: string[] = []
       const tmp = new Chess()
       fens.push(tmp.fen())
@@ -212,48 +199,51 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         fens.push(tmp.fen())
       }
 
-      if (fens.length < 2) return [] // nothing to analyze
+      if (fens.length < 2) return []
+
+      // Stop live analysis and wait for the "bestmove" response to flush
+      send('stop')
+      await new Promise(r => setTimeout(r, 300))
+      pendingRef.current = null
+      bufferRef.current  = {}
 
       const results: StockfishAnalysis[] = []
-      send('stop') // cancel live analysis first
 
       for (let i = 0; i < fens.length; i++) {
         // eslint-disable-next-line no-await-in-loop
         const result = await new Promise<StockfishAnalysis>((resolve) => {
-          bufferRef.current  = {}
-          pendingRef.current = resolve
+          bufferRef.current = {}
 
-          // Safety timeout: if Stockfish hangs, resolve with what we have
-          const timeout = setTimeout(() => {
-            if (pendingRef.current === resolve) {
+          // 4-second safety timeout per position
+          const timer = setTimeout(() => {
+            if (pendingRef.current) {
               pendingRef.current = null
               resolve({
-                bestMove:   bufferRef.current.bestMove ?? null,
+                bestMove:   bufferRef.current.bestMove   ?? null,
                 evaluation: bufferRef.current.evaluation ?? 0,
                 depth:      bufferRef.current.depth      ?? 0,
                 pv:         bufferRef.current.pv         ?? [],
                 mate:       bufferRef.current.mate       ?? null,
               })
             }
-          }, 3000)
+          }, 4000)
 
-          send(`position fen ${fens[i]}`)
-          send('go depth 14 movetime 2000')
-
-          // Wrap resolve to also clear the timeout
           pendingRef.current = (r) => {
-            clearTimeout(timeout)
+            clearTimeout(timer)
             resolve(r)
           }
+
+          send(`position fen ${fens[i]}`)
+          send('go depth 12 movetime 1500')
         })
+
         results.push(result)
         onProgress?.(Math.round(((i + 1) / fens.length) * 100))
       }
 
-      // After batch analysis, re-analyze the current board position for the live eval bar
-      const currentFen = fens[fens.length - 1]
+      // Resume live eval on current position
       bufferRef.current = {}
-      send(`position fen ${currentFen}`)
+      send(`position fen ${fens[fens.length - 1]}`)
       send(`go depth ${depth}`)
 
       return results
