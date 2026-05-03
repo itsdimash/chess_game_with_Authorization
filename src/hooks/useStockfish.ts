@@ -27,7 +27,6 @@ const DIFFICULTY_CONFIG: Record<number, [number, number, number]> = {
 
 export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {}) {
   const engineRef  = useRef<Worker | null>(null)
-  // Single pending resolver — only one command runs at a time
   const pendingRef = useRef<((a: StockfishAnalysis) => void) | null>(null)
   const bufferRef  = useRef<Partial<StockfishAnalysis>>({})
   const isReadyRef = useRef(false)
@@ -37,7 +36,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
   const { setEvalScore, setAIThinking, difficulty } = useGameStore()
 
-  // ── Boot engine ────────────────────────────────────────────────────────────
+  // ── Boot engine ─────────────────────────────────────────────────────────────
   useEffect(() => {
     let worker: Worker
     try {
@@ -69,13 +68,18 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         if (cpMatch) {
           const val = parseInt(cpMatch[1]) / 100
           bufferRef.current.evaluation = val
-          setEvalScore(val)
+          // Only update live eval bar when not doing batch analysis (no pending promise)
+          if (!pendingRef.current) {
+            setEvalScore(val)
+          }
         }
         if (mateMatch) {
           const m = parseInt(mateMatch[1])
           bufferRef.current.mate = m
           bufferRef.current.evaluation = m > 0 ? 100 : -100
-          setEvalScore(bufferRef.current.evaluation)
+          if (!pendingRef.current) {
+            setEvalScore(bufferRef.current.evaluation)
+          }
         }
         if (pvMatch) {
           bufferRef.current.pv       = pvMatch[1].split(' ')
@@ -99,7 +103,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         setAIThinking(false)
         onAnalysis?.(result)
 
-        // Resolve the waiting promise if any
         if (pendingRef.current) {
           pendingRef.current(result)
           pendingRef.current = null
@@ -118,10 +121,12 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     engineRef.current?.postMessage(cmd)
   }, [])
 
-  // ── Fire-and-forget: updates eval bar live ─────────────────────────────────
+  // ── Live eval bar: call this after every move ───────────────────────────────
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
       if (!isReadyRef.current || !engineRef.current) return
+      // Don't interrupt a pending AI move or batch analysis
+      if (pendingRef.current) return
       bufferRef.current = {}
       send('stop')
       send(`position fen ${fen}`)
@@ -168,17 +173,35 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
   )
 
   // ── Post-game analysis ─────────────────────────────────────────────────────
-  // Awaits each position before sending the next — safe with single worker.
+  // Returns evals for starting position + after each move (N+1 entries for N moves).
+  // Uses depth 14 with a 2-second per-position timeout for reliability.
   const analyzeGame = useCallback(
     async (
       pgn: string,
       onProgress?: (pct: number) => void
     ): Promise<StockfishAnalysis[]> => {
-      if (!isReadyRef.current || !engineRef.current) return []
+      if (!engineRef.current) return []
+
+      // If engine isn't ready yet, wait up to 5s
+      if (!isReadyRef.current) {
+        await new Promise<void>((res) => {
+          const check = setInterval(() => {
+            if (isReadyRef.current) { clearInterval(check); res() }
+          }, 100)
+          setTimeout(() => { clearInterval(check); res() }, 5000)
+        })
+      }
+
+      if (!engineRef.current) return []
 
       const { Chess } = await import('chess.js')
       const chess = new Chess()
-      chess.loadPgn(pgn)
+
+      try {
+        chess.loadPgn(pgn)
+      } catch {
+        return []
+      }
 
       // Build FEN list: starting position + one after each move
       const fens: string[] = []
@@ -189,24 +212,53 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         fens.push(tmp.fen())
       }
 
+      if (fens.length < 2) return [] // nothing to analyze
+
       const results: StockfishAnalysis[] = []
-      send('stop') // cancel any live analysis first
+      send('stop') // cancel live analysis first
 
       for (let i = 0; i < fens.length; i++) {
         // eslint-disable-next-line no-await-in-loop
         const result = await new Promise<StockfishAnalysis>((resolve) => {
           bufferRef.current  = {}
           pendingRef.current = resolve
+
+          // Safety timeout: if Stockfish hangs, resolve with what we have
+          const timeout = setTimeout(() => {
+            if (pendingRef.current === resolve) {
+              pendingRef.current = null
+              resolve({
+                bestMove:   bufferRef.current.bestMove ?? null,
+                evaluation: bufferRef.current.evaluation ?? 0,
+                depth:      bufferRef.current.depth      ?? 0,
+                pv:         bufferRef.current.pv         ?? [],
+                mate:       bufferRef.current.mate       ?? null,
+              })
+            }
+          }, 3000)
+
           send(`position fen ${fens[i]}`)
-          send('go depth 14')
+          send('go depth 14 movetime 2000')
+
+          // Wrap resolve to also clear the timeout
+          pendingRef.current = (r) => {
+            clearTimeout(timeout)
+            resolve(r)
+          }
         })
         results.push(result)
         onProgress?.(Math.round(((i + 1) / fens.length) * 100))
       }
 
+      // After batch analysis, re-analyze the current board position for the live eval bar
+      const currentFen = fens[fens.length - 1]
+      bufferRef.current = {}
+      send(`position fen ${currentFen}`)
+      send(`go depth ${depth}`)
+
       return results
     },
-    [send]
+    [send, depth]
   )
 
   return {

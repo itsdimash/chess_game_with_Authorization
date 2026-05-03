@@ -5,6 +5,7 @@ import { Chess, Square } from 'chess.js'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
 import { useGameStore } from '@/store/gameStore'
+import { useStockfish } from '@/hooks/useStockfish'
 import { PieceComponent } from './Piece'
 import { EvalBar } from './EvalBar'
 import { MoveHighlight } from './MoveHighlight'
@@ -24,7 +25,7 @@ interface ChessBoardProps {
 }
 
 export function ChessBoard({
-  flipped,                          // ✅ now optional — auto-derived from playerColor if omitted
+  flipped,
   interactive = true,
   showEvalBar = true,
   showCoordinates = true,
@@ -42,10 +43,11 @@ export function ChessBoard({
     status,
     selectSquare,
     clearSelection,
+    makeMove,
   } = useGameStore()
 
-  // ✅ KEY FIX: if `flipped` prop is not explicitly passed,
-  // auto-flip the board when the player is Black.
+  const { analyzePosition } = useStockfish()
+
   const isFlipped = flipped !== undefined ? flipped : playerColor === 'b'
 
   const [promotionSquare, setPromotionSquare] = useState<{
@@ -79,6 +81,23 @@ export function ChessBoard({
     [isFlipped]
   )
 
+  // Central move handler — called by clicks, drag-drop, and promotion
+  const handleMove = useCallback(
+    (from: Square, to: Square, promotion?: string) => {
+      const success = makeMove(from, to, promotion)
+      if (success) {
+        // Notify parent (e.g. page.tsx triggers AI move from here)
+        onMove?.(from, to, promotion)
+        // Give store a tick to update chess instance, then re-analyze
+        setTimeout(() => {
+          analyzePosition(chess.fen())
+        }, 50)
+      }
+      return success
+    },
+    [makeMove, onMove, analyzePosition, chess]
+  )
+
   const handleSquareClick = useCallback(
     (square: Square) => {
       if (!interactive) return
@@ -99,7 +118,7 @@ export function ChessBoard({
             setPromotionSquare({ from: selectedSquare, to: square })
             return
           }
-          onMove?.(selectedSquare, square)
+          handleMove(selectedSquare, square)
           clearSelection()
         } else if (chess.get(square)?.color === chess.turn()) {
           selectSquare(square)
@@ -112,18 +131,18 @@ export function ChessBoard({
         }
       }
     },
-    [interactive, playerColor, chess, selectedSquare, legalMoves, onMove, clearSelection, selectSquare]
+    [interactive, playerColor, chess, selectedSquare, legalMoves, handleMove, clearSelection, selectSquare]
   )
 
   const handlePromotion = useCallback(
     (piece: string) => {
       if (promotionSquare) {
-        onMove?.(promotionSquare.from, promotionSquare.to, piece)
+        handleMove(promotionSquare.from, promotionSquare.to, piece)
         setPromotionSquare(null)
         clearSelection()
       }
     },
-    [promotionSquare, onMove, clearSelection]
+    [promotionSquare, handleMove, clearSelection]
   )
 
   const handleDragStart = useCallback(
@@ -163,7 +182,6 @@ export function ChessBoard({
   }, [dragging, squareSize, getSquareName, handleSquareClick])
 
   const board = chess.board()
-  // ✅ Use isFlipped (derived value) instead of the raw `flipped` prop
   const displayBoard = isFlipped
     ? [...board].reverse().map((row) => [...row].reverse())
     : board
