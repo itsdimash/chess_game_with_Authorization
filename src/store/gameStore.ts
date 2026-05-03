@@ -174,7 +174,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }))
 
       // Save game if it just ended
-      if (status === 'checkmate' || status === 'draw' || status === 'stalemate') {
+      if (status === 'checkmate' || status === 'draw') {
         const { playerColor } = get()
         let result: 'win' | 'loss' | 'draw' = 'draw'
         if (status === 'checkmate') {
