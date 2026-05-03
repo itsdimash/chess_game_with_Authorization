@@ -13,9 +13,21 @@
   --accent: #c9a227;
 }
 
+html.light {
+  --background: #f5f0e8;
+  --surface: #ffffff;
+  --surface2: #ede8df;
+  --border: #d6cfc4;
+  --border2: #c2b9ab;
+  --text: #1a1710;
+  --muted: #7a7065;
+  --accent: #b8860b;
+}
+
 body {
   background-color: var(--background);
   color: var(--text);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Map CSS variables to Tailwind custom classes */
