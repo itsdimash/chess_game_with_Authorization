@@ -42,14 +42,14 @@ export function useAuth() {
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
   }
 
   const signInWithGithub = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
   }
 
