@@ -97,8 +97,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         setAIThinking(false)
         onAnalysis?.(result)
 
-        // Resolve the pending promise and clear it BEFORE calling resolve
-        // so that the next iteration can set a new pendingRef immediately
         if (pendingRef.current) {
           const resolve = pendingRef.current
           pendingRef.current = null
@@ -121,7 +119,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
       if (!isReadyRef.current || !engineRef.current) return
-      if (pendingRef.current) return // batch analysis in progress, don't interrupt
+      if (pendingRef.current) return
       bufferRef.current = {}
       send('stop')
       send(`position fen ${fen}`)
@@ -166,6 +164,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [difficulty, send, setAIThinking]
   )
 
+  // Analyze each position at depth 8, movetime 300ms max — fast but accurate enough
   const analyzeGame = useCallback(
     async (
       pgn: string,
@@ -175,10 +174,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       if (!isReadyRef.current) {
         await new Promise<void>((res) => {
           const start = Date.now()
-          const check = setInterval(() => {
+          const iv = setInterval(() => {
             if (isReadyRef.current || Date.now() - start > 8000) {
-              clearInterval(check)
-              res()
+              clearInterval(iv); res()
             }
           }, 100)
         })
@@ -190,7 +188,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       const chess = new Chess()
       try { chess.loadPgn(pgn) } catch { return [] }
 
-      // Build FEN list
+      // Build FEN list: start + after each move
       const fens: string[] = []
       const tmp = new Chess()
       fens.push(tmp.fen())
@@ -201,9 +199,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       if (fens.length < 2) return []
 
-      // Stop live analysis and wait for the "bestmove" response to flush
+      // Stop live analysis and flush
       send('stop')
-      await new Promise(r => setTimeout(r, 300))
+      await new Promise(r => setTimeout(r, 150))
       pendingRef.current = null
       bufferRef.current  = {}
 
@@ -214,7 +212,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         const result = await new Promise<StockfishAnalysis>((resolve) => {
           bufferRef.current = {}
 
-          // 4-second safety timeout per position
+          // 1.5s hard timeout per position
           const timer = setTimeout(() => {
             if (pendingRef.current) {
               pendingRef.current = null
@@ -226,22 +224,23 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
                 mate:       bufferRef.current.mate       ?? null,
               })
             }
-          }, 4000)
+          }, 1500)
 
           pendingRef.current = (r) => {
             clearTimeout(timer)
             resolve(r)
           }
 
+          // depth 8 + movetime 300ms = fast, ~0.3s per position max
           send(`position fen ${fens[i]}`)
-          send('go depth 12 movetime 1500')
+          send('go depth 8 movetime 300')
         })
 
         results.push(result)
         onProgress?.(Math.round(((i + 1) / fens.length) * 100))
       }
 
-      // Resume live eval on current position
+      // Resume live eval
       bufferRef.current = {}
       send(`position fen ${fens[fens.length - 1]}`)
       send(`go depth ${depth}`)
