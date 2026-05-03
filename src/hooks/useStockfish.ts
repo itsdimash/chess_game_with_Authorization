@@ -17,19 +17,37 @@ interface UseStockfishOptions {
   onAnalysis?: (analysis: StockfishAnalysis) => void
 }
 
-const DIFFICULTY_CONFIG: Record<number, [number, number, number]> = {
-  1: [1,  0,  200],
-  2: [3,  5,  400],
-  3: [5,  10, 600],
-  4: [8,  15, 1000],
-  5: [15, 20, 2000],
+/**
+ * Difficulty config: [depth, skillLevel, moveTimeMs, eloRating, limitStrength]
+ *
+ * Levels 1–3 use UCI_LimitStrength + UCI_Elo — this is the correct way to make
+ * Stockfish play genuinely weaker (it will blunder, miss tactics, etc.).
+ * Levels 4–5 disable ELO limiting and use raw Skill Level + higher depth.
+ *
+ * Elo estimates:
+ *   1 → ~600  (complete beginner)
+ *   2 → ~1000 (casual player)
+ *   3 → ~1400 (intermediate)
+ *   4 → ~1900 (strong club player)
+ *   5 → ~2800 (near engine strength)
+ */
+const DIFFICULTY_CONFIG: Record<
+  number,
+  { depth: number; skill: number; moveTime: number; elo: number; limitStrength: boolean }
+> = {
+  1: { depth: 1,  skill: 0,  moveTime: 500,  elo: 600,  limitStrength: true  },
+  2: { depth: 3,  skill: 5,  moveTime: 800,  elo: 1000, limitStrength: true  },
+  3: { depth: 6,  skill: 10, moveTime: 1200, elo: 1400, limitStrength: true  },
+  4: { depth: 12, skill: 17, moveTime: 2000, elo: 1900, limitStrength: false },
+  5: { depth: 20, skill: 20, moveTime: 3000, elo: 2800, limitStrength: false },
 }
 
 export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {}) {
-  const engineRef  = useRef<Worker | null>(null)
-  const pendingRef = useRef<((a: StockfishAnalysis) => void) | null>(null)
-  const bufferRef  = useRef<Partial<StockfishAnalysis>>({})
-  const isReadyRef = useRef(false)
+  const engineRef      = useRef<Worker | null>(null)
+  const pendingRef     = useRef<((a: StockfishAnalysis) => void) | null>(null)
+  const bufferRef      = useRef<Partial<StockfishAnalysis>>({})
+  const isReadyRef     = useRef(false)
+  const lastDiffRef    = useRef<number>(-1)   // track last configured difficulty
 
   const [isReady, setIsReady]   = useState(false)
   const [analysis, setAnalysis] = useState<StockfishAnalysis | null>(null)
@@ -107,7 +125,10 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
     engineRef.current = worker
     worker.postMessage('uci')
+    worker.postMessage('setoption name Hash value 128')
+    worker.postMessage('setoption name Threads value 1')
     worker.postMessage('isready')
+
     return () => worker.terminate()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -115,6 +136,29 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
   const send = useCallback((cmd: string) => {
     engineRef.current?.postMessage(cmd)
   }, [])
+
+  /** Apply engine options for the given difficulty level (only when it changes). */
+  const applyDifficultyOptions = useCallback(
+    (diff: number) => {
+      if (diff === lastDiffRef.current) return
+      lastDiffRef.current = diff
+
+      const cfg = DIFFICULTY_CONFIG[diff] ?? DIFFICULTY_CONFIG[3]
+
+      send('stop')
+      send(`setoption name Skill Level value ${cfg.skill}`)
+
+      if (cfg.limitStrength) {
+        send('setoption name UCI_LimitStrength value true')
+        send(`setoption name UCI_Elo value ${cfg.elo}`)
+      } else {
+        send('setoption name UCI_LimitStrength value false')
+      }
+
+      send('isready')
+    },
+    [send]
+  )
 
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
@@ -130,6 +174,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
   const playAIMove = useCallback(
     (fen: string, onMove: (from: string, to: string, promo?: string) => void) => {
+      // Fallback: random move if Stockfish unavailable
       if (!isReadyRef.current || !engineRef.current) {
         import('chess.js').then(({ Chess }) => {
           const c = new Chess(fen)
@@ -142,8 +187,10 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         return
       }
 
-      const [depthVal, skillLevel, moveTime] =
-        DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
+      const cfg = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
+
+      // Apply difficulty settings (no-op if already set)
+      applyDifficultyOptions(difficulty)
 
       setAIThinking(true)
       bufferRef.current  = {}
@@ -152,25 +199,30 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
           const from  = result.bestMove.slice(0, 2)
           const to    = result.bestMove.slice(2, 4)
           const promo = result.bestMove.length === 5 ? result.bestMove[4] : undefined
-          setTimeout(() => onMove(from, to, promo), 100)
+
+          // Small human-like delay — shorter for easier levels, longer for harder
+          const delay = cfg.limitStrength ? 250 : 150
+          setTimeout(() => onMove(from, to, promo), delay)
+        } else {
+          setAIThinking(false)
         }
       }
 
       send('stop')
-      send(`setoption name Skill Level value ${skillLevel}`)
       send(`position fen ${fen}`)
-      send(`go depth ${depthVal} movetime ${moveTime}`)
+      // Use both depth limit AND movetime so harder levels feel more deliberate
+      send(`go depth ${cfg.depth} movetime ${cfg.moveTime}`)
     },
-    [difficulty, send, setAIThinking]
+    [difficulty, send, setAIThinking, applyDifficultyOptions]
   )
 
-  // Analyze each position at depth 8, movetime 300ms max — fast but accurate enough
+  /** Analyze each position at depth 8, movetime 300 ms — fast but accurate enough. */
   const analyzeGame = useCallback(
     async (
       pgn: string,
       onProgress?: (pct: number) => void
     ): Promise<StockfishAnalysis[]> => {
-      // Wait for engine ready (up to 8s)
+      // Wait for engine ready (up to 8 s)
       if (!isReadyRef.current) {
         await new Promise<void>((res) => {
           const start = Date.now()
@@ -199,11 +251,14 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       if (fens.length < 2) return []
 
-      // Stop live analysis and flush
+      // Disable strength limiting during analysis so evals are accurate
       send('stop')
+      send('setoption name UCI_LimitStrength value false')
+      send('setoption name Skill Level value 20')
       await new Promise(r => setTimeout(r, 150))
       pendingRef.current = null
       bufferRef.current  = {}
+      lastDiffRef.current = -1  // force re-apply after analysis
 
       const results: StockfishAnalysis[] = []
 
@@ -212,7 +267,7 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         const result = await new Promise<StockfishAnalysis>((resolve) => {
           bufferRef.current = {}
 
-          // 1.5s hard timeout per position
+          // 1.5 s hard timeout per position
           const timer = setTimeout(() => {
             if (pendingRef.current) {
               pendingRef.current = null
@@ -231,7 +286,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
             resolve(r)
           }
 
-          // depth 8 + movetime 300ms = fast, ~0.3s per position max
           send(`position fen ${fens[i]}`)
           send('go depth 8 movetime 300')
         })
