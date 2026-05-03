@@ -18,6 +18,7 @@ const BOARD_THEMES = {
   forest:   { light: '#ffffdd', dark: '#86a666', label: 'Forest' },
   purple:   { light: '#f0e4ff', dark: '#7b4fa3', label: 'Purple' },
   midnight: { light: '#c8d8e8', dark: '#2c4a6e', label: 'Midnight' },
+  pikmi:    { light: '#ffe4f0', dark: '#e8759a', label: 'Pikmi' },
 }
 
 type ThemeKey = keyof typeof BOARD_THEMES
