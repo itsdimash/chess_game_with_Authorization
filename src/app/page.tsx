@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ChessBoard } from '@/components/game/ChessBoard'
 import { AICoach } from '@/components/game/AICoach'
 import { useGameStore } from '@/store/gameStore'
@@ -18,10 +18,43 @@ const BOARD_THEMES = {
 
 type ThemeKey = keyof typeof BOARD_THEMES
 
+// Hook to compute board size based on available screen space
+function useBoardSize() {
+  const [size, setSize] = useState(560)
+
+  useEffect(() => {
+    const compute = () => {
+      const w = window.innerWidth
+      const h = window.innerHeight
+
+      if (w < 640) {
+        // Mobile: full width minus padding, keep square
+        const available = Math.min(w - 16, h * 0.55)
+        setSize(Math.floor(available / 8) * 8)
+      } else if (w < 1024) {
+        // Tablet: slightly smaller, stacked layout
+        const available = Math.min(w - 48, h * 0.65)
+        setSize(Math.floor(Math.min(available, 520) / 8) * 8)
+      } else {
+        // Desktop: constrained by height so sidebar fits
+        const available = Math.min(h - 160, w * 0.55, 600)
+        setSize(Math.floor(available / 8) * 8)
+      }
+    }
+
+    compute()
+    window.addEventListener('resize', compute)
+    return () => window.removeEventListener('resize', compute)
+  }, [])
+
+  return size
+}
+
 export default function Home() {
   const { initGame, makeMove, status, chess, playerColor, mode, startTimer } = useGameStore()
   const [gameStarted, setGameStarted] = useState(false)
   const [boardTheme, setBoardTheme] = useState<ThemeKey>('classic')
+  const boardSize = useBoardSize()
 
   const handleAIMove = (from: string, to: string, promo?: string) => {
     const state = useGameStore.getState()
@@ -33,7 +66,6 @@ export default function Home() {
     onAnalysis: () => {},
   })
 
-  // Trigger AI move whenever it becomes the AI's turn
   useEffect(() => {
     if (!gameStarted || mode !== 'ai') return
     const state = useGameStore.getState()
@@ -54,7 +86,6 @@ export default function Home() {
   const handleStartGame = (config: GameConfig) => {
     initGame(config)
     setGameStarted(true)
-    // Start timer after store updates
     setTimeout(() => {
       useGameStore.getState().startTimer()
     }, 100)
@@ -65,39 +96,62 @@ export default function Home() {
     if (!success) return
     const state = useGameStore.getState()
     analyzePosition(state.chess.fen())
-    // AI response is handled by the useEffect above
   }
 
   const theme = BOARD_THEMES[boardTheme]
 
   return (
-    <main className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-6">
-      <h1 className="text-3xl font-bold text-accent tracking-tight">♞ KnightOwl Chess</h1>
+    <main className="min-h-screen bg-background flex flex-col items-center p-2 sm:p-4 gap-3 sm:gap-6">
+      {/* Header */}
+      <h1 className="text-2xl sm:text-3xl font-bold text-accent tracking-tight pt-2">
+        ♞ KnightOwl Chess
+      </h1>
 
       {!gameStarted ? (
-        <GameSetup onStart={handleStartGame} boardTheme={boardTheme} setBoardTheme={setBoardTheme} />
+        <GameSetup
+          onStart={handleStartGame}
+          boardTheme={boardTheme}
+          setBoardTheme={setBoardTheme}
+        />
       ) : (
-        <div className="flex flex-col lg:flex-row gap-6 items-start">
-          <ChessBoard
-            onMove={handleMove}
-            interactive={status === 'playing' || status === 'check'}
-            lightSquareColor={theme.light}
-            darkSquareColor={theme.dark}
-          />
-          <div className="w-full lg:w-72 bg-surface border border-border rounded-2xl p-4">
-            <TimerDisplay />
-            <AICoach />
-            <div className="mt-4 pt-4 border-t border-border">
-              <StatusBanner status={status} />
-              <button
-                onClick={() => {
-                  useGameStore.getState().resetGame()
-                  setGameStarted(false)
-                }}
-                className="mt-3 w-full py-2 rounded-lg border border-border hover:border-accent hover:text-accent text-sm text-muted transition-all"
-              >
-                New Game
-              </button>
+        /*
+         * Layout strategy:
+         * Mobile (<lg): board on top, sidebar below (full width, scrollable)
+         * Desktop (lg+): board left, sidebar right (side by side)
+         */
+        <div className="w-full flex flex-col lg:flex-row gap-3 lg:gap-6 items-center lg:items-start lg:justify-center">
+
+          {/* Board column */}
+          <div className="flex-shrink-0 flex justify-center w-full lg:w-auto">
+            <ChessBoard
+              onMove={handleMove}
+              interactive={status === 'playing' || status === 'check'}
+              lightSquareColor={theme.light}
+              darkSquareColor={theme.dark}
+              size={boardSize}
+              showEvalBar={boardSize >= 320}
+              showCoordinates={boardSize >= 280}
+            />
+          </div>
+
+          {/* Sidebar */}
+          <div className="w-full lg:w-72 xl:w-80 flex-shrink-0">
+            {/* On mobile: horizontal timer row */}
+            <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4">
+              <TimerDisplay />
+              <AICoach />
+              <div className="mt-4 pt-4 border-t border-border">
+                <StatusBanner status={status} />
+                <button
+                  onClick={() => {
+                    useGameStore.getState().resetGame()
+                    setGameStarted(false)
+                  }}
+                  className="mt-3 w-full py-2.5 rounded-lg border border-border hover:border-accent hover:text-accent text-sm text-muted transition-all"
+                >
+                  New Game
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -118,26 +172,31 @@ function TimerDisplay() {
   const isWhiteActive = activeTimer === 'w'
   const isBlackActive = activeTimer === 'b'
 
+  // On mobile show timers side-by-side to save vertical space
   return (
-    <div className="flex flex-col gap-2 mb-4">
-      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border transition-all ${
+    <div className="flex sm:flex-col gap-2 mb-4">
+      <div className={`flex flex-1 items-center justify-between px-3 sm:px-4 py-2 rounded-lg border transition-all ${
         isBlackActive ? 'border-accent bg-accent/10' : 'border-border'
       }`}>
-        <span className="text-sm text-muted">
+        <span className="text-xs sm:text-sm text-muted truncate mr-2">
           {playerColor === 'w' ? '🤖 AI (Black)' : '♚ You (Black)'}
         </span>
-        <span className={`font-mono font-bold text-lg ${isBlackActive ? 'text-accent' : 'text-text'} ${blackTime <= 30 ? 'text-red-400' : ''}`}>
+        <span className={`font-mono font-bold text-base sm:text-lg flex-shrink-0 ${
+          isBlackActive ? 'text-accent' : 'text-text'
+        } ${blackTime <= 30 ? 'text-red-400' : ''}`}>
           {fmt(blackTime)}
         </span>
       </div>
 
-      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border transition-all ${
+      <div className={`flex flex-1 items-center justify-between px-3 sm:px-4 py-2 rounded-lg border transition-all ${
         isWhiteActive ? 'border-accent bg-accent/10' : 'border-border'
       }`}>
-        <span className="text-sm text-muted">
+        <span className="text-xs sm:text-sm text-muted truncate mr-2">
           {playerColor === 'b' ? '🤖 AI (White)' : '♔ You (White)'}
         </span>
-        <span className={`font-mono font-bold text-lg ${isWhiteActive ? 'text-accent' : 'text-text'} ${whiteTime <= 30 ? 'text-red-400' : ''}`}>
+        <span className={`font-mono font-bold text-base sm:text-lg flex-shrink-0 ${
+          isWhiteActive ? 'text-accent' : 'text-text'
+        } ${whiteTime <= 30 ? 'text-red-400' : ''}`}>
           {fmt(whiteTime)}
         </span>
       </div>
@@ -156,27 +215,33 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
   const [color, setColor] = useState<'w' | 'b' | 'random'>('w')
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-8 w-full max-w-md flex flex-col gap-5">
-      <h2 className="text-xl font-semibold text-text">New Game</h2>
+    <div className="bg-surface border border-border rounded-2xl p-5 sm:p-8 w-full max-w-md flex flex-col gap-4 sm:gap-5">
+      <h2 className="text-lg sm:text-xl font-semibold text-text">New Game</h2>
 
+      {/* Mode */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs text-muted uppercase tracking-wide">Mode</label>
         <div className="flex gap-2">
           {(['ai', 'analysis'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
-              className={`flex-1 py-2 rounded-lg border text-sm transition-all capitalize ${mode === m ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'}`}>
+              className={`flex-1 py-2.5 rounded-lg border text-sm transition-all capitalize ${
+                mode === m ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
+              }`}>
               {m === 'ai' ? '🤖 vs AI' : '🔍 Analysis'}
             </button>
           ))}
         </div>
       </div>
 
+      {/* Time control */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs text-muted uppercase tracking-wide">Time Control</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {(['1+0', '3+0', '5+0', '10+0', '15+10', '30+0'] as const).map(tc => (
             <button key={tc} onClick={() => setTimeControl(tc)}
-              className={`px-3 py-1.5 rounded-lg border text-sm transition-all ${timeControl === tc ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'}`}>
+              className={`py-2 rounded-lg border text-sm transition-all ${
+                timeControl === tc ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
+              }`}>
               {tc}
             </button>
           ))}
@@ -185,12 +250,15 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
 
       {mode === 'ai' && (
         <>
+          {/* Difficulty */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-muted uppercase tracking-wide">Difficulty</label>
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map(d => (
                 <button key={d} onClick={() => setDifficulty(d)}
-                  className={`flex-1 py-2 rounded-lg border text-sm transition-all ${difficulty === d ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'}`}>
+                  className={`flex-1 py-2.5 rounded-lg border text-sm transition-all ${
+                    difficulty === d ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
+                  }`}>
                   {d}
                 </button>
               ))}
@@ -198,12 +266,15 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
             <p className="text-xs text-muted">1 = Easy · 5 = Expert</p>
           </div>
 
+          {/* Color */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-muted uppercase tracking-wide">Play as</label>
             <div className="flex gap-2">
               {(['w', 'b', 'random'] as const).map(c => (
                 <button key={c} onClick={() => setColor(c)}
-                  className={`flex-1 py-2 rounded-lg border text-sm transition-all ${color === c ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'}`}>
+                  className={`flex-1 py-2.5 rounded-lg border text-sm transition-all ${
+                    color === c ? 'border-accent text-accent bg-accent/10' : 'border-border text-muted hover:border-border2'
+                  }`}>
                   {c === 'w' ? '♔ White' : c === 'b' ? '♚ Black' : '🎲 Random'}
                 </button>
               ))}
@@ -212,13 +283,16 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
         </>
       )}
 
+      {/* Board theme */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs text-muted uppercase tracking-wide">Board Color</label>
         <div className="flex gap-2">
           {(Object.entries(BOARD_THEMES) as [ThemeKey, typeof BOARD_THEMES[ThemeKey]][]).map(([key, theme]) => (
             <button key={key} onClick={() => setBoardTheme(key)}
               title={theme.label}
-              className={`flex-1 h-8 rounded-lg border-2 transition-all overflow-hidden ${boardTheme === key ? 'border-accent' : 'border-transparent'}`}>
+              className={`flex-1 h-8 rounded-lg border-2 transition-all overflow-hidden ${
+                boardTheme === key ? 'border-accent' : 'border-transparent'
+              }`}>
               <div className="flex h-full">
                 <div className="flex-1" style={{ background: theme.light }} />
                 <div className="flex-1" style={{ background: theme.dark }} />
@@ -230,7 +304,7 @@ function GameSetup({ onStart, boardTheme, setBoardTheme }: {
 
       <button
         onClick={() => onStart({ mode, timeControl, difficulty, color })}
-        className="w-full py-3 rounded-xl bg-accent text-black font-semibold hover:brightness-110 transition-all"
+        className="w-full py-3 rounded-xl bg-accent text-black font-semibold hover:brightness-110 transition-all text-base"
       >
         Start Game
       </button>
