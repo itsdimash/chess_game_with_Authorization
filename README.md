@@ -2,6 +2,24 @@
 
 A chess app with AI coaching powered by Stockfish and Supabase authentication + leaderboard.
 
+---
+
+## What is this?
+
+KnightOwl Chess is a full-stack web chess application where you can play against an AI powered by Stockfish — one of the strongest chess engines in the world. It includes real-time position evaluation, an AI coaching panel that explains moves, a global leaderboard, and Google/GitHub authentication so your game history is saved automatically.
+
+## Who is it for?
+
+- **Beginners** who want to learn chess with AI coaching and adjustable difficulty (level 1 starts at ~600 Elo)
+- **Casual players** who want a clean, fast chess experience without installing anything
+- **Developers** who want to see how to integrate Stockfish WASM, Supabase auth, and real-time game saving into a Next.js app
+
+## Why is it valuable?
+
+Most chess apps are either too complex (full platforms like Chess.com) or too simple (no auth, no history). KnightOwl hits the middle ground — it's a lightweight, open-source app that gives you a real chess experience with persistent stats, without the bloat. The AI coaching feature makes it genuinely useful for improving your game, not just playing it.
+
+---
+
 ## Setup Instructions
 
 ### 1. Install dependencies
