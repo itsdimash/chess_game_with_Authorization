@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"hooks/useStockfish.ts -> chess.js\":{\"id\":\"hooks/useStockfish.ts -> chess.js\",\"files\":[]}}"

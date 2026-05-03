@@ -5,10 +5,8 @@ import { Chess, Square } from 'chess.js'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
 import { useGameStore } from '@/store/gameStore'
-import { useStockfish } from '@/hooks/useStockfish'
 import { PieceComponent } from './Piece'
 import { EvalBar } from './EvalBar'
-import { MoveHighlight } from './MoveHighlight'
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1']
@@ -40,13 +38,10 @@ export function ChessBoard({
     legalMoves,
     lastMove,
     playerColor,
-    status,
     selectSquare,
     clearSelection,
     makeMove,
   } = useGameStore()
-
-  const { analyzePosition } = useStockfish()
 
   const isFlipped = flipped !== undefined ? flipped : playerColor === 'b'
 
@@ -70,32 +65,16 @@ export function ChessBoard({
     [isFlipped]
   )
 
-  const getSquareCoords = useCallback(
-    (square: Square) => {
-      const file = FILES.indexOf(square[0])
-      const rank = RANKS.indexOf(square[1])
-      const col = isFlipped ? 7 - file : file
-      const row = isFlipped ? 7 - rank : rank
-      return { row, col }
-    },
-    [isFlipped]
-  )
-
-  // Central move handler — called by clicks, drag-drop, and promotion
+  // Central move handler — delegates to parent (page.tsx handles analysis)
   const handleMove = useCallback(
     (from: Square, to: Square, promotion?: string) => {
       const success = makeMove(from, to, promotion)
       if (success) {
-        // Notify parent (e.g. page.tsx triggers AI move from here)
         onMove?.(from, to, promotion)
-        // Give store a tick to update chess instance, then re-analyze
-        setTimeout(() => {
-          analyzePosition(chess.fen())
-        }, 50)
       }
       return success
     },
-    [makeMove, onMove, analyzePosition, chess]
+    [makeMove, onMove]
   )
 
   const handleSquareClick = useCallback(

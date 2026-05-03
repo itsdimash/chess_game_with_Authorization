@@ -1,6 +1,7 @@
 // src/store/gameStore.ts
 import { create } from 'zustand'
 import { Chess, Square, Move } from 'chess.js'
+import { supabase } from '@/lib/supabase/supabase'
 import type { Color, GameConfig, GameMode, Difficulty, AnnotatedMove } from '@/types'
 
 interface GameState {
@@ -17,6 +18,7 @@ interface GameState {
   mode: GameMode
   difficulty: Difficulty
   status: 'idle' | 'playing' | 'check' | 'checkmate' | 'stalemate' | 'draw'
+  gameStartTime: number | null
 
   // Clocks
   whiteTime: number
@@ -49,6 +51,7 @@ interface GameState {
   startTimer: () => void
   stopTimer: () => void
   tick: () => void
+  saveGame: (result: 'win' | 'loss' | 'draw') => Promise<void>
 }
 
 const TIME_CONTROLS: Record<string, number> = {
@@ -72,6 +75,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   mode: 'ai',
   difficulty: 1,
   status: 'idle',
+  gameStartTime: null,
 
   whiteTime: 600,
   blackTime: 600,
@@ -108,6 +112,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       mode: config.mode,
       difficulty: config.difficulty ?? 1,
       status: 'playing',
+      gameStartTime: Date.now(),
       whiteTime: timeSeconds,
       blackTime: timeSeconds,
       activeTimer: null,
@@ -142,9 +147,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       const moveResult = chess.move({ from, to, promotion })
       if (!moveResult) return false
 
-      const newChess = new Chess(chess.fen())
-      // chess.js is mutable so we keep the same instance
-
       // Determine new game status
       let status: GameState['status'] = 'playing'
       if (chess.isCheckmate()) status = 'checkmate'
@@ -162,7 +164,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newActiveTimer = prevTurn === 'w' ? 'b' : 'w'
 
       set((s) => ({
-        chess: s.chess, // same instance, now mutated
+        chess: s.chess,
         lastMove: { from, to },
         moveHistory: [...s.moveHistory, annotatedMove],
         selectedSquare: null,
@@ -170,6 +172,17 @@ export const useGameStore = create<GameState>((set, get) => ({
         status,
         activeTimer: status === 'playing' || status === 'check' ? newActiveTimer : null,
       }))
+
+      // Save game if it just ended
+      if (status === 'checkmate' || status === 'draw' || status === 'stalemate') {
+        const { playerColor } = get()
+        let result: 'win' | 'loss' | 'draw' = 'draw'
+        if (status === 'checkmate') {
+          // The player who just moved wins — that's moveResult.color
+          result = moveResult.color === playerColor ? 'win' : 'loss'
+        }
+        get().saveGame(result)
+      }
 
       return true
     } catch {
@@ -193,6 +206,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       lastMove: null,
       moveHistory: [],
       status: 'idle',
+      gameStartTime: null,
       activeTimer: null,
       timerInterval: null,
       evalScore: 0,
@@ -228,8 +242,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (state.activeTimer === 'w') {
       const newTime = state.whiteTime - 1
       if (newTime <= 0) {
-        set({ whiteTime: 0, status: 'checkmate' }) // time out = loss
+        set({ whiteTime: 0, status: 'checkmate' })
         get().stopTimer()
+        // White ran out of time — white loses
+        const { playerColor } = get()
+        get().saveGame(playerColor === 'w' ? 'loss' : 'win')
       } else {
         set({ whiteTime: newTime })
       }
@@ -238,10 +255,39 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (newTime <= 0) {
         set({ blackTime: 0, status: 'checkmate' })
         get().stopTimer()
+        // Black ran out of time — black loses
+        const { playerColor } = get()
+        get().saveGame(playerColor === 'b' ? 'loss' : 'win')
       } else {
         set({ blackTime: newTime })
       }
     }
+  },
+
+  saveGame: async (result) => {
+    const state = get()
+
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return // not logged in, skip saving
+
+    const duration = state.gameStartTime
+      ? Math.floor((Date.now() - state.gameStartTime) / 1000)
+      : 0
+
+    const playerColor = state.playerColor === 'both' ? 'w' : state.playerColor
+
+    const { error } = await supabase.from('games').insert({
+      player_id: user.id,
+      result,
+      player_color: playerColor,
+      difficulty: state.difficulty,
+      moves: state.moveHistory.length,
+      duration,
+      pgn: state.chess.pgn(),
+    })
+
+    if (error) console.error('Failed to save game:', error)
   },
 }))
 
