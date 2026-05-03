@@ -5,6 +5,7 @@ import { ChessBoard } from '@/components/game/ChessBoard'
 import { AICoach } from '@/components/game/AICoach'
 import { useGameStore } from '@/store/gameStore'
 import { useStockfish } from '@/hooks/useStockfish'
+import { ThemeToggle } from '@/components/ThemeProvider'
 import type { GameConfig } from '@/types'
 import type { Square } from 'chess.js'
 
@@ -28,15 +29,12 @@ function useBoardSize() {
       const h = window.innerHeight
 
       if (w < 640) {
-        // Mobile: full width minus padding, keep square
         const available = Math.min(w - 16, h * 0.55)
         setSize(Math.floor(available / 8) * 8)
       } else if (w < 1024) {
-        // Tablet: slightly smaller, stacked layout
         const available = Math.min(w - 48, h * 0.65)
         setSize(Math.floor(Math.min(available, 520) / 8) * 8)
       } else {
-        // Desktop: constrained by height so sidebar fits
         const available = Math.min(h - 160, w * 0.55, 600)
         setSize(Math.floor(available / 8) * 8)
       }
@@ -103,9 +101,12 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background flex flex-col items-center p-2 sm:p-4 gap-3 sm:gap-6">
       {/* Header */}
-      <h1 className="text-2xl sm:text-3xl font-bold text-accent tracking-tight pt-2">
-        ♞ KnightOwl Chess
-      </h1>
+      <div className="flex items-center gap-3 pt-2">
+        <h1 className="text-2xl sm:text-3xl font-bold text-accent tracking-tight">
+          ♞ KnightOwl Chess
+        </h1>
+        <ThemeToggle />
+      </div>
 
       {!gameStarted ? (
         <GameSetup
@@ -114,11 +115,6 @@ export default function Home() {
           setBoardTheme={setBoardTheme}
         />
       ) : (
-        /*
-         * Layout strategy:
-         * Mobile (<lg): board on top, sidebar below (full width, scrollable)
-         * Desktop (lg+): board left, sidebar right (side by side)
-         */
         <div className="w-full flex flex-col lg:flex-row gap-3 lg:gap-6 items-center lg:items-start lg:justify-center">
 
           {/* Board column */}
@@ -136,7 +132,6 @@ export default function Home() {
 
           {/* Sidebar */}
           <div className="w-full lg:w-72 xl:w-80 flex-shrink-0">
-            {/* On mobile: horizontal timer row */}
             <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4">
               <TimerDisplay />
               <AICoach />
@@ -172,7 +167,6 @@ function TimerDisplay() {
   const isWhiteActive = activeTimer === 'w'
   const isBlackActive = activeTimer === 'b'
 
-  // On mobile show timers side-by-side to save vertical space
   return (
     <div className="flex sm:flex-col gap-2 mb-4">
       <div className={`flex flex-1 items-center justify-between px-3 sm:px-4 py-2 rounded-lg border transition-all ${
