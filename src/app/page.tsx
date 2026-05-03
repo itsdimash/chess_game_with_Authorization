@@ -8,6 +8,7 @@ import { Leaderboard } from '@/components/Leaderboard'
 import { useGameStore } from '@/store/gameStore'
 import { useStockfish } from '@/hooks/useStockfish'
 import { useAuth } from '@/hooks/useAuth'
+import { ThemeToggle } from '@/components/ThemeProvider'
 import type { GameConfig } from '@/types'
 import type { Square } from 'chess.js'
 
@@ -116,6 +117,7 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeToggle />
           {!authLoading && (
             user ? (
               <div className="flex items-center gap-2">
