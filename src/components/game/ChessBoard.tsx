@@ -24,7 +24,7 @@ interface ChessBoardProps {
 }
 
 export function ChessBoard({
-  flipped = false,
+  flipped,                          // ✅ now optional — auto-derived from playerColor if omitted
   interactive = true,
   showEvalBar = true,
   showCoordinates = true,
@@ -44,6 +44,10 @@ export function ChessBoard({
     clearSelection,
   } = useGameStore()
 
+  // ✅ KEY FIX: if `flipped` prop is not explicitly passed,
+  // auto-flip the board when the player is Black.
+  const isFlipped = flipped !== undefined ? flipped : playerColor === 'b'
+
   const [promotionSquare, setPromotionSquare] = useState<{
     from: Square
     to: Square
@@ -57,22 +61,22 @@ export function ChessBoard({
 
   const getSquareName = useCallback(
     (row: number, col: number): Square => {
-      const file = flipped ? FILES[7 - col] : FILES[col]
-      const rank = flipped ? RANKS[7 - row] : RANKS[row]
+      const file = isFlipped ? FILES[7 - col] : FILES[col]
+      const rank = isFlipped ? RANKS[7 - row] : RANKS[row]
       return `${file}${rank}` as Square
     },
-    [flipped]
+    [isFlipped]
   )
 
   const getSquareCoords = useCallback(
     (square: Square) => {
       const file = FILES.indexOf(square[0])
       const rank = RANKS.indexOf(square[1])
-      const col = flipped ? 7 - file : file
-      const row = flipped ? 7 - rank : rank
+      const col = isFlipped ? 7 - file : file
+      const row = isFlipped ? 7 - rank : rank
       return { row, col }
     },
-    [flipped]
+    [isFlipped]
   )
 
   const handleSquareClick = useCallback(
@@ -86,7 +90,6 @@ export function ChessBoard({
       if (selectedSquare) {
         const isLegal = legalMoves.includes(square)
         if (isLegal) {
-          // Check if pawn promotion
           const piece = chess.get(selectedSquare)
           if (
             piece?.type === 'p' &&
@@ -123,7 +126,6 @@ export function ChessBoard({
     [promotionSquare, onMove, clearSelection]
   )
 
-  // Drag handlers
   const handleDragStart = useCallback(
     (square: Square, e: React.MouseEvent) => {
       if (!interactive) return
@@ -161,7 +163,10 @@ export function ChessBoard({
   }, [dragging, squareSize, getSquareName, handleSquareClick])
 
   const board = chess.board()
-  const displayBoard = flipped ? [...board].reverse().map((row) => [...row].reverse()) : board
+  // ✅ Use isFlipped (derived value) instead of the raw `flipped` prop
+  const displayBoard = isFlipped
+    ? [...board].reverse().map((row) => [...row].reverse())
+    : board
 
   const isInCheck = chess.inCheck()
   const kingSquare = isInCheck ? findKingSquare(chess, chess.turn()) : null
@@ -171,20 +176,16 @@ export function ChessBoard({
       {showEvalBar && <EvalBar />}
 
       <div>
-        {/* Rank labels top */}
         <div className="flex">
           {showCoordinates && <div style={{ width: 20 }} />}
           <div style={{ width: size }} />
         </div>
 
         <div className="flex">
-          {/* Rank labels left */}
+          {/* Rank labels */}
           {showCoordinates && (
-            <div
-              className="flex flex-col"
-              style={{ width: 20, height: size }}
-            >
-              {(flipped ? [...RANKS].reverse() : RANKS).map((rank) => (
+            <div className="flex flex-col" style={{ width: 20, height: size }}>
+              {(isFlipped ? [...RANKS].reverse() : RANKS).map((rank) => (
                 <div
                   key={rank}
                   className="flex items-center justify-center text-xs text-muted font-mono"
@@ -206,7 +207,6 @@ export function ChessBoard({
               boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 3px #2a2218',
             }}
           >
-            {/* Squares */}
             <div className="grid grid-cols-8 w-full h-full">
               {displayBoard.map((row, rowIdx) =>
                 row.map((piece, colIdx) => {
@@ -214,7 +214,9 @@ export function ChessBoard({
                   const isLight = (rowIdx + colIdx) % 2 === 0
                   const isSelected = selectedSquare === square
                   const isLegal = legalMoves.includes(square)
-                  const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square)
+                  const isLastMove =
+                    lastMove &&
+                    (lastMove.from === square || lastMove.to === square)
                   const isKingInCheck = kingSquare === square
                   const isOccupied = !!piece
 
@@ -224,39 +226,44 @@ export function ChessBoard({
                       className={clsx(
                         'relative cursor-pointer select-none',
                         isSelected && 'brightness-110',
-                        isKingInCheck && 'bg-red-500/60',
+                        isKingInCheck && 'bg-red-500/60'
                       )}
                       style={{
                         width: squareSize,
                         height: squareSize,
-                        backgroundColor: isKingInCheck ? undefined : (isLight ? lightSquareColor : darkSquareColor),
+                        backgroundColor: isKingInCheck
+                          ? undefined
+                          : isLight
+                          ? lightSquareColor
+                          : darkSquareColor,
                       }}
                       onClick={() => handleSquareClick(square)}
                     >
-                      {/* Last move highlight */}
                       {isLastMove && (
                         <div className="absolute inset-0 bg-yellow-400/30 pointer-events-none" />
                       )}
-
-                      {/* Selected highlight */}
                       {isSelected && (
                         <div className="absolute inset-0 bg-yellow-300/40 pointer-events-none" />
                       )}
-
-                      {/* Legal move indicator */}
                       {isLegal && !isOccupied && (
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="rounded-full bg-black/20" style={{ width: squareSize * 0.3, height: squareSize * 0.3 }} />
+                          <div
+                            className="rounded-full bg-black/20"
+                            style={{
+                              width: squareSize * 0.3,
+                              height: squareSize * 0.3,
+                            }}
+                          />
                         </div>
                       )}
                       {isLegal && isOccupied && (
                         <div
                           className="absolute inset-0 rounded-full pointer-events-none"
-                          style={{ boxShadow: `inset 0 0 0 ${squareSize * 0.08}px rgba(0,0,0,0.25)` }}
+                          style={{
+                            boxShadow: `inset 0 0 0 ${squareSize * 0.08}px rgba(0,0,0,0.25)`,
+                          }}
                         />
                       )}
-
-                      {/* Piece */}
                       {piece && piece.square !== dragging && (
                         <PieceComponent
                           piece={piece}
@@ -296,22 +303,23 @@ export function ChessBoard({
                 <PromotionModal
                   color={chess.turn()}
                   onSelect={handlePromotion}
-                  onCancel={() => { setPromotionSquare(null); clearSelection() }}
+                  onCancel={() => {
+                    setPromotionSquare(null)
+                    clearSelection()
+                  }}
                   squareSize={squareSize}
                   square={promotionSquare.to}
-                  flipped={flipped}
+                  flipped={isFlipped}
                 />
               )}
             </AnimatePresence>
           </div>
-
-          {/* Rank labels right (optional) */}
         </div>
 
         {/* File labels */}
         {showCoordinates && (
           <div className="flex" style={{ marginLeft: 20 }}>
-            {(flipped ? [...FILES].reverse() : FILES).map((file) => (
+            {(isFlipped ? [...FILES].reverse() : FILES).map((file) => (
               <div
                 key={file}
                 className="flex items-center justify-center text-xs text-muted font-mono"
@@ -327,7 +335,6 @@ export function ChessBoard({
   )
 }
 
-// Promotion modal overlay
 function PromotionModal({
   color,
   onSelect,
@@ -348,11 +355,6 @@ function PromotionModal({
     wq: '♕', wr: '♖', wb: '♗', wn: '♘',
     bq: '♛', br: '♜', bb: '♝', bn: '♞',
   }
-
-  const fileIdx = FILES.indexOf(square[0])
-  const col = flipped ? 7 - fileIdx : fileIdx
-  const isTop = square[1] === '8'
-  const startRow = isTop ? 0 : 4
 
   return (
     <motion.div
