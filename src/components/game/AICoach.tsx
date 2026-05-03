@@ -120,46 +120,105 @@ export function AICoach() {
     setAnalysisProgress(0)
 
     const pgn = chess.pgn()
-
-    // ✅ FIXED: use real Stockfish evaluations instead of Math.random()
-    // analyzeGame returns one StockfishAnalysis per position (N+1 for N moves).
-    // positions[i] is before move[i], positions[i+1] is after move[i].
-    const positions = await analyzeGame(pgn)
-
-    const analyses: CoachAnalysis[] = []
     const total = moveHistory.length
+    const analyses: CoachAnalysis[] = []
 
-    for (let i = 0; i < total; i++) {
-      const move = moveHistory[i]
+    // Try Stockfish first
+    const positions = await analyzeGame(pgn)
+    const stockfishWorked =
+      positions.length >= total + 1 &&
+      positions.some(p => p.evaluation !== 0)
 
-      // Eval before this move (in centipawns × 100 to keep integer math)
-      // analyzeGame returns evaluation in pawns (e.g. 0.35), so multiply by 100
-      const evalBeforeCP = Math.round((positions[i]?.evaluation ?? 0) * 100)
-      const evalAfterCP = Math.round((positions[i + 1]?.evaluation ?? 0) * 100)
+    if (stockfishWorked) {
+      // --- Stockfish path ---
+      for (let i = 0; i < total; i++) {
+        const move = moveHistory[i]
+        // evaluation is already in pawns from useStockfish, convert to CP
+        const evalBeforeCP = Math.round((positions[i]?.evaluation ?? 0) * 100)
+        const evalAfterCP  = Math.round((positions[i + 1]?.evaluation ?? 0) * 100)
+        const type = annotateMove(evalBeforeCP, evalAfterCP, move.color as 'w' | 'b')
+        const engineBestMove = positions[i]?.bestMove ?? undefined
+        const evalDelta = evalAfterCP - evalBeforeCP
 
-      const type = annotateMove(evalBeforeCP, evalAfterCP, move.color as 'w' | 'b')
+        analyses.push({
+          type,
+          message: generateExplanation(
+            { type, message: '', evalDelta, bestMove: engineBestMove },
+            move.san,
+            Math.floor(i / 2) + 1
+          ),
+          bestMove: type !== 'best' && type !== 'good' && engineBestMove ? engineBestMove : undefined,
+          evalDelta,
+        })
+        setAnalysisProgress(Math.round(((i + 1) / total) * 100))
+      }
+    } else {
+      // --- Claude API fallback (when Stockfish worker isn't available) ---
+      // Build move list with move numbers for Claude
+      const moveList = moveHistory
+        .map((m, i) =>
+          i % 2 === 0
+            ? `${Math.floor(i / 2) + 1}. ${m.san}`
+            : m.san
+        )
+        .join(' ')
 
-      // bestMove comes from the position BEFORE the move (what engine would have played)
-      const engineBestMove = positions[i]?.bestMove ?? undefined
+      try {
+        setAnalysisProgress(10)
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1000,
+            messages: [{
+              role: 'user',
+              content: `Analyze this chess game move by move and return ONLY a JSON array (no markdown, no explanation).
 
-      const evalDelta = evalAfterCP - evalBeforeCP
+Moves: ${moveList}
 
-      analyses.push({
-        type,
-        message: generateExplanation(
-          { type, message: '', evalDelta, bestMove: engineBestMove },
-          move.san,
-          Math.floor(i / 2) + 1
-        ),
-        // Only show "better move" if the player's move wasn't the engine's choice
-        bestMove:
-          type !== 'best' && type !== 'good' && engineBestMove
-            ? engineBestMove
-            : undefined,
-        evalDelta,
-      })
+For each move return an object with:
+- "san": the move in SAN notation
+- "type": one of "best", "good", "inaccuracy", "mistake", "blunder"
+- "message": a short 1-sentence explanation
+- "bestMove": the better move in SAN if type is inaccuracy/mistake/blunder, else null
 
-      setAnalysisProgress(Math.round(((i + 1) / total) * 100))
+Return exactly ${total} objects in the array, one per move in order.`
+            }],
+          }),
+        })
+
+        const data = await response.json()
+        const text = data.content?.find((b: any) => b.type === 'text')?.text ?? '[]'
+        const cleaned = text.replace(/```json|```/g, '').trim()
+        const parsed: Array<{
+          san: string
+          type: MoveAnnotation['type']
+          message: string
+          bestMove: string | null
+        }> = JSON.parse(cleaned)
+
+        for (let i = 0; i < total; i++) {
+          const item = parsed[i]
+          const move = moveHistory[i]
+          const type = item?.type ?? 'good'
+          analyses.push({
+            type,
+            message: item?.message ?? generateExplanation({ type, message: '' }, move.san, Math.floor(i / 2) + 1),
+            bestMove: item?.bestMove ?? undefined,
+          })
+          setAnalysisProgress(Math.round(((i + 1) / total) * 100))
+        }
+      } catch {
+        // Last resort: mark everything as needing review
+        for (let i = 0; i < total; i++) {
+          analyses.push({
+            type: 'good',
+            message: 'Analysis unavailable — Stockfish engine not loaded.',
+          })
+          setAnalysisProgress(Math.round(((i + 1) / total) * 100))
+        }
+      }
     }
 
     setFullAnalysis(analyses)
@@ -308,41 +367,50 @@ export function AICoach() {
                   </div>
                 </div>
 
-                {/* Move-by-move */}
+                {/* Move-by-move — show inaccuracies/mistakes/blunders only */}
                 <div className="mt-3 flex flex-col gap-1 max-h-52 overflow-y-auto">
-                  {fullAnalysis.map((a, i) => {
-                    const move = moveHistory[i]
-                    if (!move || a.type === 'best') return null
-                    const cfg = ANNOTATION_CONFIG[a.type]
-                    return (
-                      <div key={i} className={clsx('rounded-lg p-2 border text-xs', cfg.bg)}>
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-muted font-mono">
-                            {Math.floor(i / 2) + 1}
-                            {i % 2 === 0 ? '.' : '...'}
-                          </span>
-                          <code className={clsx('font-mono font-medium', cfg.color)}>
-                            {move.san}
-                          </code>
-                          <span className={clsx('ml-auto text-[10px] font-medium', cfg.color)}>
-                            {cfg.label}
-                          </span>
-                        </div>
-                        <p className="text-text/70 leading-relaxed">{a.message}</p>
-                        {a.bestMove && (
-                          <div className="mt-1">
-                            <span className="text-muted">Better: </span>
-                            <code className="text-amber-400 font-mono">{a.bestMove}</code>
-                          </div>
-                        )}
-                      </div>
+                  {(() => {
+                    const notable = fullAnalysis.filter(
+                      a => a.type === 'inaccuracy' || a.type === 'mistake' || a.type === 'blunder'
                     )
-                  })}
-                  {fullAnalysis.every(a => a.type === 'best' || a.type === 'good') && (
-                    <div className="text-center py-4 text-xs text-green-400">
-                      ✨ Excellent game! No significant mistakes found.
-                    </div>
-                  )}
+                    if (notable.length === 0) {
+                      return (
+                        <div className="text-center py-4 text-xs text-green-400">
+                          ✨ Great game! No inaccuracies, mistakes or blunders found.
+                        </div>
+                      )
+                    }
+                    return fullAnalysis.map((a, i) => {
+                      const move = moveHistory[i]
+                      if (!move) return null
+                      // Only render non-best/good moves
+                      if (a.type === 'best' || a.type === 'good') return null
+                      const cfg = ANNOTATION_CONFIG[a.type]
+                      return (
+                        <div key={i} className={clsx('rounded-lg p-2 border text-xs', cfg.bg)}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="text-muted font-mono">
+                              {Math.floor(i / 2) + 1}
+                              {i % 2 === 0 ? '.' : '...'}
+                            </span>
+                            <code className={clsx('font-mono font-medium', cfg.color)}>
+                              {move.san}
+                            </code>
+                            <span className={clsx('ml-auto text-[10px] font-medium', cfg.color)}>
+                              {cfg.label}
+                            </span>
+                          </div>
+                          <p className="text-text/70 leading-relaxed">{a.message}</p>
+                          {a.bestMove && (
+                            <div className="mt-1">
+                              <span className="text-muted">Better: </span>
+                              <code className="text-amber-400 font-mono">{a.bestMove}</code>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  })()}
                 </div>
               </motion.div>
             )}
