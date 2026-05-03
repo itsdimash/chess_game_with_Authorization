@@ -28,8 +28,17 @@ interface GameState {
 
   // Analysis
   evalScore: number
+  prevEvalScore: number
   isAnalyzing: boolean
   coachMessage: string
+
+  // Live accuracy
+  liveWhiteAccuracy: number | null
+  liveBlackAccuracy: number | null
+  whiteScoreSum: number
+  blackScoreSum: number
+  whiteMoveCount: number
+  blackMoveCount: number
 
   // AI
   isAIThinking: boolean
@@ -63,6 +72,31 @@ const TIME_CONTROLS: Record<string, number> = {
   '30+0': 1800,
 }
 
+const ACCURACY_WEIGHTS: Record<string, number> = {
+  best: 100,
+  good: 85,
+  inaccuracy: 60,
+  mistake: 30,
+  blunder: 0,
+}
+
+function annotateMoveType(
+  evalBefore: number,
+  evalAfter: number,
+  color: 'w' | 'b'
+): string {
+  const clamp = (v: number) => Math.max(-15, Math.min(15, v))
+  const before = clamp(evalBefore)
+  const after  = clamp(evalAfter)
+  const delta  = color === 'w' ? after - before : before - after
+
+  if (delta >= -0.1)  return 'best'
+  if (delta >= -0.3)  return 'good'
+  if (delta >= -0.6)  return 'inaccuracy'
+  if (delta >= -1.5)  return 'mistake'
+  return 'blunder'
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   chess: new Chess(),
   selectedSquare: null,
@@ -83,8 +117,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   timerInterval: null,
 
   evalScore: 0,
+  prevEvalScore: 0,
   isAnalyzing: false,
   coachMessage: 'Welcome! Start a game and I\'ll analyze your moves.',
+
+  liveWhiteAccuracy: null,
+  liveBlackAccuracy: null,
+  whiteScoreSum: 0,
+  blackScoreSum: 0,
+  whiteMoveCount: 0,
+  blackMoveCount: 0,
 
   isAIThinking: false,
   opponentOnline: false,
@@ -118,8 +160,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       activeTimer: null,
       timerInterval: null,
       evalScore: 0,
+      prevEvalScore: 0,
       isAIThinking: false,
       coachMessage: 'Game started! Good luck! 🎯',
+      liveWhiteAccuracy: null,
+      liveBlackAccuracy: null,
+      whiteScoreSum: 0,
+      blackScoreSum: 0,
+      whiteMoveCount: 0,
+      blackMoveCount: 0,
     })
   },
 
@@ -159,6 +208,31 @@ export const useGameStore = create<GameState>((set, get) => ({
         evalScore: state.evalScore,
       }
 
+      // Live accuracy update using eval delta
+      const color = moveResult.color as 'w' | 'b'
+      const moveType = annotateMoveType(state.prevEvalScore, state.evalScore, color)
+      const moveScore = ACCURACY_WEIGHTS[moveType] ?? 85
+
+      let newWhiteScoreSum = state.whiteScoreSum
+      let newBlackScoreSum = state.blackScoreSum
+      let newWhiteMoveCount = state.whiteMoveCount
+      let newBlackMoveCount = state.blackMoveCount
+
+      if (color === 'w') {
+        newWhiteScoreSum += moveScore
+        newWhiteMoveCount += 1
+      } else {
+        newBlackScoreSum += moveScore
+        newBlackMoveCount += 1
+      }
+
+      const liveWhiteAccuracy = newWhiteMoveCount > 0
+        ? Math.round(newWhiteScoreSum / newWhiteMoveCount)
+        : null
+      const liveBlackAccuracy = newBlackMoveCount > 0
+        ? Math.round(newBlackScoreSum / newBlackMoveCount)
+        : null
+
       // Switch timers
       const prevTurn = moveResult.color
       const newActiveTimer = prevTurn === 'w' ? 'b' : 'w'
@@ -171,6 +245,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         legalMoves: [],
         status,
         activeTimer: status === 'playing' || status === 'check' ? newActiveTimer : null,
+        prevEvalScore: state.evalScore,
+        whiteScoreSum: newWhiteScoreSum,
+        blackScoreSum: newBlackScoreSum,
+        whiteMoveCount: newWhiteMoveCount,
+        blackMoveCount: newBlackMoveCount,
+        liveWhiteAccuracy,
+        liveBlackAccuracy,
       }))
 
       // Save game if it just ended
@@ -178,7 +259,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         const { playerColor } = get()
         let result: 'win' | 'loss' | 'draw' = 'draw'
         if (status === 'checkmate') {
-          // The player who just moved wins — that's moveResult.color
           result = moveResult.color === playerColor ? 'win' : 'loss'
         }
         get().saveGame(result)
@@ -210,8 +290,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       activeTimer: null,
       timerInterval: null,
       evalScore: 0,
+      prevEvalScore: 0,
       isAIThinking: false,
       coachMessage: 'Ready for a new game!',
+      liveWhiteAccuracy: null,
+      liveBlackAccuracy: null,
+      whiteScoreSum: 0,
+      blackScoreSum: 0,
+      whiteMoveCount: 0,
+      blackMoveCount: 0,
     })
   },
 
@@ -244,7 +331,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (newTime <= 0) {
         set({ whiteTime: 0, status: 'checkmate' })
         get().stopTimer()
-        // White ran out of time — white loses
         const { playerColor } = get()
         get().saveGame(playerColor === 'w' ? 'loss' : 'win')
       } else {
@@ -255,7 +341,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (newTime <= 0) {
         set({ blackTime: 0, status: 'checkmate' })
         get().stopTimer()
-        // Black ran out of time — black loses
         const { playerColor } = get()
         get().saveGame(playerColor === 'b' ? 'loss' : 'win')
       } else {
@@ -267,9 +352,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   saveGame: async (result) => {
     const state = get()
 
-    // Get current user
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return // not logged in, skip saving
+    if (!user) return
 
     const duration = state.gameStartTime
       ? Math.floor((Date.now() - state.gameStartTime) / 1000)

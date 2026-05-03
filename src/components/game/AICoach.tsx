@@ -74,8 +74,43 @@ function calcAccuracy(moves: CoachAnalysis[], color: 'w' | 'b'): number | null {
   return Math.round(mine.reduce((sum, m) => sum + weights[m.type], 0) / mine.length)
 }
 
+function AccuracyBar({ value, label }: { value: number | null; label: string }) {
+  const color = value === null ? 'text-muted'
+    : value >= 85 ? 'text-green-400'
+    : value >= 65 ? 'text-amber-400'
+    : 'text-red-400'
+
+  const barColor = value === null ? 'bg-surface2'
+    : value >= 85 ? 'bg-green-400'
+    : value >= 65 ? 'bg-amber-400'
+    : 'bg-red-400'
+
+  return (
+    <div className="flex-1">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-muted">{label}</span>
+        <span className={clsx('text-xs font-bold font-mono', color)}>
+          {value !== null ? `${value}%` : '—'}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-surface2 overflow-hidden">
+        <motion.div
+          className={clsx('h-full rounded-full', barColor)}
+          initial={{ width: 0 }}
+          animate={{ width: value !== null ? `${value}%` : '0%' }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function AICoach() {
-  const { coachMessage, moveHistory, isAIThinking, chess, playerColor } = useGameStore()
+  const {
+    coachMessage, moveHistory, isAIThinking, chess, playerColor,
+    liveWhiteAccuracy, liveBlackAccuracy,
+  } = useGameStore()
+
   const [isExpanded,       setIsExpanded]      = useState(false)
   const [fullAnalysis,     setFullAnalysis]     = useState<CoachAnalysis[]>([])
   const [isAnalyzing,      setIsAnalyzing]      = useState(false)
@@ -98,16 +133,11 @@ export function AICoach() {
     try {
       const positions = await analyzeGame(pgn, setAnalysisProgress)
 
-      console.log('Stockfish positions:', positions.length, 'needed:', total + 1)
-      console.log('Sample:', positions.slice(0, 3))
-
-      // sfWorked: got enough positions and at least one had a best move
       const sfWorked =
         positions.length >= total + 1 &&
         positions.some(p => p.bestMove !== null)
 
       if (!sfWorked) {
-        console.warn('Stockfish analysis insufficient, positions:', positions)
         setErrorMsg('Engine analysis failed. Make sure Stockfish loaded correctly.')
         setIsAnalyzing(false)
         return
@@ -141,14 +171,15 @@ export function AICoach() {
   }, [moveHistory, chess, analyzeGame])
 
   const myColor: 'w' | 'b'  = playerColor === 'b' ? 'b' : 'w'
-  const whiteAccuracy        = calcAccuracy(fullAnalysis, 'w')
-  const blackAccuracy        = calcAccuracy(fullAnalysis, 'b')
+  const whiteAccuracy        = fullAnalysis.length ? calcAccuracy(fullAnalysis, 'w') : liveWhiteAccuracy
+  const blackAccuracy        = fullAnalysis.length ? calcAccuracy(fullAnalysis, 'b') : liveBlackAccuracy
   const blunders             = fullAnalysis.filter(a => a.color === myColor && a.type === 'blunder').length
   const mistakes             = fullAnalysis.filter(a => a.color === myColor && a.type === 'mistake').length
   const inaccuracies         = fullAnalysis.filter(a => a.color === myColor && a.type === 'inaccuracy').length
   const lastMove             = moveHistory[moveHistory.length - 1]
   const config               = lastMove?.annotation ? ANNOTATION_CONFIG[lastMove.annotation.type] : null
   const notableMoves         = fullAnalysis.filter(a => a.type !== 'best' && a.type !== 'good')
+  const hasLiveAccuracy      = liveWhiteAccuracy !== null || liveBlackAccuracy !== null
 
   return (
     <div className="flex flex-col gap-3">
@@ -169,6 +200,21 @@ export function AICoach() {
           </div>
         )}
       </div>
+
+      {/* Live accuracy bars — shown during game */}
+      {hasLiveAccuracy && !fullAnalysis.length && (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-border bg-surface2 p-3 flex flex-col gap-2"
+        >
+          <span className="text-[10px] text-muted uppercase tracking-wide font-semibold">
+            Live Accuracy
+          </span>
+          <AccuracyBar value={liveWhiteAccuracy} label="♔ White" />
+          <AccuracyBar value={liveBlackAccuracy} label="♚ Black" />
+        </motion.div>
+      )}
 
       {/* Current move annotation */}
       <AnimatePresence mode="wait">
