@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useGameStore } from '@/store/gameStore'
 
-interface StockfishAnalysis {
+export interface StockfishAnalysis {
   bestMove: string | null
   evaluation: number
   depth: number
@@ -19,11 +19,11 @@ interface UseStockfishOptions {
 
 // Difficulty settings: [depth, skillLevel, moveTime]
 const DIFFICULTY_CONFIG: Record<number, [number, number, number]> = {
-  1: [1, 0, 200],   // Easy: very shallow, skill 0, fast
-  2: [3, 5, 400],   // Medium-easy
-  3: [5, 10, 600],  // Medium
-  4: [8, 15, 1000], // Hard
-  5: [15, 20, 2000], // Expert (Stockfish full strength)
+  1: [1, 0, 200],
+  2: [3, 5, 400],
+  3: [5, 10, 600],
+  4: [8, 15, 1000],
+  5: [15, 20, 2000],
 }
 
 export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {}) {
@@ -31,14 +31,11 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
   const [isReady, setIsReady] = useState(false)
   const [analysis, setAnalysis] = useState<StockfishAnalysis | null>(null)
   const analysisBuffer = useRef<Partial<StockfishAnalysis>>({})
-  const { setEvalScore, setAIThinking, setCoachMessage, makeMove, difficulty } = useGameStore()
+  const { setEvalScore, setAIThinking, difficulty } = useGameStore()
 
-  // Initialize Stockfish worker
   useEffect(() => {
     const initEngine = async () => {
       try {
-        // Use Stockfish WASM via CDN or local file
-        // In production: serve from /public/stockfish.js
         const worker = new Worker('/stockfish/stockfish.js')
 
         worker.onmessage = (e: MessageEvent) => {
@@ -51,13 +48,11 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         }
 
         engineRef.current = worker
-
-        // Initialize
         worker.postMessage('uci')
         worker.postMessage('isready')
       } catch (err) {
         console.warn('Stockfish WASM not available, using fallback:', err)
-        setIsReady(true) // Continue without engine
+        setIsReady(true)
       }
     }
 
@@ -75,11 +70,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       }
 
       if (line.startsWith('info')) {
-        // Parse depth
         const depthMatch = line.match(/depth (\d+)/)
         if (depthMatch) analysisBuffer.current.depth = parseInt(depthMatch[1])
 
-        // Parse score
         const scoreMatch = line.match(/score cp (-?\d+)/)
         const mateMatch = line.match(/score mate (-?\d+)/)
 
@@ -93,7 +86,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
           analysisBuffer.current.evaluation = mateMatch[1].startsWith('-') ? -100 : 100
         }
 
-        // Parse principal variation
         const pvMatch = line.match(/pv (.+)$/)
         if (pvMatch) {
           analysisBuffer.current.pv = pvMatch[1].split(' ')
@@ -128,11 +120,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     engineRef.current?.postMessage(cmd)
   }, [])
 
-  // Analyze a position
   const analyzePosition = useCallback(
     (fen: string, searchDepth = depth) => {
       if (!isReady || !engineRef.current) return
-
       sendCommand('stop')
       sendCommand(`position fen ${fen}`)
       sendCommand(`go depth ${searchDepth}`)
@@ -140,16 +130,10 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [isReady, depth, sendCommand]
   )
 
-  // Get best move for AI to play
   const getBestMove = useCallback(
     (fen: string) => {
-      if (!isReady || !engineRef.current) {
-        // Fallback: make a random legal move
-        return
-      }
-
+      if (!isReady || !engineRef.current) return
       const [depthVal, skillLevel, moveTime] = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
-
       setAIThinking(true)
       sendCommand('stop')
       sendCommand(`setoption name Skill Level value ${skillLevel}`)
@@ -159,54 +143,73 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [isReady, difficulty, sendCommand, setAIThinking]
   )
 
-  // Full game analysis (post-game)
+  // ✅ FIXED: analyzeGame now uses onmessage (not addEventListener) on the Worker
+  // and correctly resolves each position before moving to the next.
   const analyzeGame = useCallback(
     async (pgn: string): Promise<StockfishAnalysis[]> => {
       if (!isReady || !engineRef.current) return []
 
-      // Parse moves and analyze each position
       const { Chess } = await import('chess.js')
       const chess = new Chess()
       chess.loadPgn(pgn)
+
+      // Build list of FENs: one per position (before each move + final)
       const positions: string[] = []
-      
       const tempChess = new Chess()
-      const moves = chess.history()
       positions.push(tempChess.fen())
-      for (const move of moves) {
+      for (const move of chess.history()) {
         tempChess.move(move)
         positions.push(tempChess.fen())
       }
 
-      // Analyze each position at depth 12
       const analyses: StockfishAnalysis[] = []
+
       for (const fen of positions) {
         const result = await new Promise<StockfishAnalysis>((resolve) => {
           const buffer: Partial<StockfishAnalysis> = {}
-          const handler = (e: MessageEvent) => {
-            const line: string = e.data
+
+          // ✅ KEY FIX: save and restore onmessage instead of addEventListener
+          const previousHandler = engineRef.current!.onmessage
+
+          engineRef.current!.onmessage = (e: MessageEvent) => {
+            const line: string = typeof e.data === 'string' ? e.data : e.data.toString()
+
             if (line.startsWith('info')) {
               const scoreMatch = line.match(/score cp (-?\d+)/)
+              const mateMatch = line.match(/score mate (-?\d+)/)
               if (scoreMatch) buffer.evaluation = parseInt(scoreMatch[1]) / 100
+              if (mateMatch) {
+                buffer.mate = parseInt(mateMatch[1])
+                buffer.evaluation = mateMatch[1].startsWith('-') ? -100 : 100
+              }
               const pvMatch = line.match(/pv (.+)$/)
-              if (pvMatch) { buffer.pv = pvMatch[1].split(' '); buffer.bestMove = buffer.pv[0] }
+              if (pvMatch) {
+                buffer.pv = pvMatch[1].split(' ')
+                buffer.bestMove = buffer.pv[0]
+              }
+              const depthMatch = line.match(/depth (\d+)/)
+              if (depthMatch) buffer.depth = parseInt(depthMatch[1])
             }
+
             if (line.startsWith('bestmove')) {
+              // Restore main handler before resolving
+              engineRef.current!.onmessage = previousHandler as (e: MessageEvent) => void
+
               const bestMove = line.split(' ')[1]
-              engineRef.current?.removeEventListener('message', handler)
               resolve({
-                bestMove: bestMove || null,
+                bestMove: bestMove && bestMove !== '(none)' ? bestMove : null,
                 evaluation: buffer.evaluation ?? 0,
-                depth: 12,
+                depth: buffer.depth ?? 12,
                 pv: buffer.pv ?? [],
-                mate: null,
+                mate: buffer.mate ?? null,
               })
             }
           }
-          engineRef.current?.addEventListener('message', handler)
+
           sendCommand(`position fen ${fen}`)
           sendCommand('go depth 12')
         })
+
         analyses.push(result)
       }
 
@@ -215,13 +218,11 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
     [isReady, sendCommand]
   )
 
-  // Auto-play AI move when it's the engine's turn
   const playAIMove = useCallback(
     (fen: string, onMove: (from: string, to: string, promo?: string) => void) => {
       if (!isReady) {
-        // Fallback to random move
-        setTimeout(() => {
-          const { Chess } = require('chess.js') // eslint-disable-line
+        setTimeout(async () => {
+          const { Chess } = await import('chess.js')
           const chess = new Chess(fen)
           const moves = chess.moves({ verbose: true })
           if (moves.length) {
@@ -232,17 +233,26 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
         return
       }
 
-      const moveHandler = (analysis: StockfishAnalysis) => {
-        if (analysis.bestMove) {
-          const from = analysis.bestMove.slice(0, 2)
-          const to = analysis.bestMove.slice(2, 4)
-          const promo = analysis.bestMove.length === 5 ? analysis.bestMove[4] : undefined
-          setTimeout(() => onMove(from, to, promo), 100)
+      const [depthVal, skillLevel, moveTime] = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
+      const previousHandler = engineRef.current!.onmessage
+
+      engineRef.current!.onmessage = (e: MessageEvent) => {
+        const line: string = typeof e.data === 'string' ? e.data : e.data.toString()
+
+        if (line.startsWith('bestmove')) {
+          engineRef.current!.onmessage = previousHandler as (e: MessageEvent) => void
+          setAIThinking(false)
+
+          const bestMove = line.split(' ')[1]
+          if (bestMove && bestMove !== '(none)') {
+            const from = bestMove.slice(0, 2)
+            const to = bestMove.slice(2, 4)
+            const promo = bestMove.length === 5 ? bestMove[4] : undefined
+            setTimeout(() => onMove(from, to, promo), 100)
+          }
         }
       }
 
-      // Temporarily override handler
-      const [depthVal, skillLevel, moveTime] = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG[3]
       setAIThinking(true)
       sendCommand('stop')
       sendCommand(`setoption name Skill Level value ${skillLevel}`)

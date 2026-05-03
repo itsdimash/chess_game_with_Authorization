@@ -49,7 +49,6 @@ const ANNOTATION_CONFIG = {
   },
 }
 
-// Generates contextual explanations for move annotations
 function generateExplanation(
   analysis: CoachAnalysis,
   san: string,
@@ -72,7 +71,7 @@ function generateExplanation(
     ],
     mistake: [
       `${san} gives up some advantage. ${bestMove ? `${bestMove} would have been much stronger.` : 'A better move was available.'}`,
-      `This move loses control of the center. ${evalDelta ? `You lost about ${Math.abs(evalDelta / 100).toFixed(1)} pawns of advantage.` : ''}`,
+      `This move loses control. ${evalDelta ? `You lost about ${Math.abs(evalDelta / 100).toFixed(1)} pawns of advantage.` : ''}`,
     ],
     blunder: [
       `Ouch! ${san} loses material or gives a decisive advantage. ${bestMove ? `${bestMove} was the move to play.` : ''}`,
@@ -84,18 +83,25 @@ function generateExplanation(
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-// Annotate a move based on eval change
-function annotateMove(evalBefore: number, evalAfter: number, color: 'w' | 'b'): MoveAnnotation['type'] {
-  // From the player's perspective
-  const delta = color === 'w'
-    ? evalAfter - evalBefore      // white wants higher eval
-    : evalBefore - evalAfter      // black wants lower eval (more negative)
+// Annotate a move based on centipawn eval change.
+// evalBefore and evalAfter are in centipawns, from White's perspective.
+// delta is always computed from the moving side's perspective.
+function annotateMove(
+  evalBeforeCP: number,
+  evalAfterCP: number,
+  color: 'w' | 'b'
+): MoveAnnotation['type'] {
+  // White wants higher eval; black wants lower eval.
+  const delta =
+    color === 'w'
+      ? evalAfterCP - evalBeforeCP   // positive = improvement for white
+      : evalBeforeCP - evalAfterCP   // positive = improvement for black
 
-  if (delta >= 0) return 'best'       // no loss, improvement or same
-  if (delta >= -10) return 'good'     // ≤0.10 loss
-  if (delta >= -30) return 'inaccuracy' // ≤0.30 loss
-  if (delta >= -100) return 'mistake'  // ≤1.00 loss
-  return 'blunder'                    // >1.00 loss
+  if (delta >= 0) return 'best'         // no loss
+  if (delta >= -10) return 'good'       // ≤0.10 pawn loss
+  if (delta >= -30) return 'inaccuracy' // ≤0.30 pawn loss
+  if (delta >= -100) return 'mistake'   // ≤1.00 pawn loss
+  return 'blunder'                      // >1.00 pawn loss
 }
 
 export function AICoach() {
@@ -114,33 +120,46 @@ export function AICoach() {
     setAnalysisProgress(0)
 
     const pgn = chess.pgn()
-    
-    // Simulate progressive analysis
-    const total = moveHistory.length
+
+    // ✅ FIXED: use real Stockfish evaluations instead of Math.random()
+    // analyzeGame returns one StockfishAnalysis per position (N+1 for N moves).
+    // positions[i] is before move[i], positions[i+1] is after move[i].
+    const positions = await analyzeGame(pgn)
+
     const analyses: CoachAnalysis[] = []
+    const total = moveHistory.length
 
-    // In production: use useStockfish().analyzeGame(pgn)
-    // Here we demonstrate the structure
     for (let i = 0; i < total; i++) {
-      await new Promise(r => setTimeout(r, 80))
-      setAnalysisProgress(Math.round(((i + 1) / total) * 100))
-
       const move = moveHistory[i]
-      // Simulate eval scores (in production: from Stockfish)
-      const evalBefore = Math.random() * 200 - 100
-      const evalAfter = evalBefore + (Math.random() * 100 - 50)
-      const type = annotateMove(evalBefore, evalAfter, move.color as 'w' | 'b')
+
+      // Eval before this move (in centipawns × 100 to keep integer math)
+      // analyzeGame returns evaluation in pawns (e.g. 0.35), so multiply by 100
+      const evalBeforeCP = Math.round((positions[i]?.evaluation ?? 0) * 100)
+      const evalAfterCP = Math.round((positions[i + 1]?.evaluation ?? 0) * 100)
+
+      const type = annotateMove(evalBeforeCP, evalAfterCP, move.color as 'w' | 'b')
+
+      // bestMove comes from the position BEFORE the move (what engine would have played)
+      const engineBestMove = positions[i]?.bestMove ?? undefined
+
+      const evalDelta = evalAfterCP - evalBeforeCP
 
       analyses.push({
         type,
         message: generateExplanation(
-          { type, message: "", evalDelta: evalAfter - evalBefore },
+          { type, message: '', evalDelta, bestMove: engineBestMove },
           move.san,
           Math.floor(i / 2) + 1
         ),
-        bestMove: type !== 'best' && type !== 'good' ? `${['Nf3','d4','e4','Bc4','Qd2'][i % 5]}` : undefined,
-        evalDelta: evalAfter - evalBefore,
+        // Only show "better move" if the player's move wasn't the engine's choice
+        bestMove:
+          type !== 'best' && type !== 'good' && engineBestMove
+            ? engineBestMove
+            : undefined,
+        evalDelta,
       })
+
+      setAnalysisProgress(Math.round(((i + 1) / total) * 100))
     }
 
     setFullAnalysis(analyses)
@@ -152,12 +171,17 @@ export function AICoach() {
     ? ANNOTATION_CONFIG[lastMove.annotation.type]
     : null
 
-  // Count blunders and mistakes
+  // ✅ FIXED: accuracy now derived from real Stockfish-annotated moves
   const blunders = fullAnalysis.filter(a => a.type === 'blunder').length
   const mistakes = fullAnalysis.filter(a => a.type === 'mistake').length
-  const accuracy = fullAnalysis.length > 0
-    ? Math.round((fullAnalysis.filter(a => a.type === 'best' || a.type === 'good').length / fullAnalysis.length) * 100)
-    : null
+  const accuracy =
+    fullAnalysis.length > 0
+      ? Math.round(
+          (fullAnalysis.filter(a => a.type === 'best' || a.type === 'good').length /
+            fullAnalysis.length) *
+            100
+        )
+      : null
 
   return (
     <div className="flex flex-col gap-3">
@@ -167,7 +191,9 @@ export function AICoach() {
           <div className="w-7 h-7 rounded-lg bg-amber-400/15 flex items-center justify-center">
             <Sparkles size={14} className="text-amber-400" />
           </div>
-          <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">KnightOwl AI Coach</span>
+          <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+            KnightOwl AI Coach
+          </span>
         </div>
         {isAIThinking && (
           <div className="flex items-center gap-1.5 text-xs text-muted">
@@ -212,7 +238,9 @@ export function AICoach() {
       {moveHistory.length > 0 && (
         <div>
           <button
-            onClick={() => fullAnalysis.length ? setIsExpanded(!isExpanded) : runFullAnalysis()}
+            onClick={() =>
+              fullAnalysis.length ? setIsExpanded(!isExpanded) : runFullAnalysis()
+            }
             disabled={isAnalyzing}
             className="w-full flex items-center justify-between p-2.5 rounded-lg border border-border hover:border-border2 hover:bg-surface2 transition-all text-xs text-muted group"
           >
@@ -255,7 +283,16 @@ export function AICoach() {
                 <div className="grid grid-cols-3 gap-2 mt-3">
                   {accuracy !== null && (
                     <div className="rounded-lg bg-surface2 p-2 text-center">
-                      <div className={clsx('text-lg font-bold font-mono', accuracy >= 80 ? 'text-green-400' : accuracy >= 60 ? 'text-amber-400' : 'text-red-400')}>
+                      <div
+                        className={clsx(
+                          'text-lg font-bold font-mono',
+                          accuracy >= 80
+                            ? 'text-green-400'
+                            : accuracy >= 60
+                            ? 'text-amber-400'
+                            : 'text-red-400'
+                        )}
+                      >
                         {accuracy}%
                       </div>
                       <div className="text-[10px] text-muted mt-0.5">Accuracy</div>
@@ -280,9 +317,16 @@ export function AICoach() {
                     return (
                       <div key={i} className={clsx('rounded-lg p-2 border text-xs', cfg.bg)}>
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-muted font-mono">{Math.floor(i / 2) + 1}{i % 2 === 0 ? '.' : '...'}</span>
-                          <code className={clsx('font-mono font-medium', cfg.color)}>{move.san}</code>
-                          <span className={clsx('ml-auto text-[10px] font-medium', cfg.color)}>{cfg.label}</span>
+                          <span className="text-muted font-mono">
+                            {Math.floor(i / 2) + 1}
+                            {i % 2 === 0 ? '.' : '...'}
+                          </span>
+                          <code className={clsx('font-mono font-medium', cfg.color)}>
+                            {move.san}
+                          </code>
+                          <span className={clsx('ml-auto text-[10px] font-medium', cfg.color)}>
+                            {cfg.label}
+                          </span>
                         </div>
                         <p className="text-text/70 leading-relaxed">{a.message}</p>
                         {a.bestMove && (
