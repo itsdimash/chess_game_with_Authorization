@@ -183,23 +183,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         evalScore: state.evalScore,
       }
 
-      // Live accuracy: score this move based on eval delta
-      const WEIGHTS: Record<string, number> = { best: 100, good: 85, inaccuracy: 60, mistake: 30, blunder: 0 }
+      // Calculate live accuracy for this move using eval delta
       const clamp = (v: number) => Math.max(-15, Math.min(15, v))
-      const color = moveResult.color as 'w' | 'b'
-      const delta = color === 'w'
+      const moveColor = moveResult.color as 'w' | 'b'
+      const delta = moveColor === 'w'
         ? clamp(state.evalScore) - clamp(state.prevEvalScore)
         : clamp(state.prevEvalScore) - clamp(state.evalScore)
-      const moveType = delta >= -0.1 ? 'best' : delta >= -0.3 ? 'good' : delta >= -0.6 ? 'inaccuracy' : delta >= -1.5 ? 'mistake' : 'blunder'
-      const moveScore = WEIGHTS[moveType]
+      const moveScore = delta >= -0.1 ? 100 : delta >= -0.3 ? 85 : delta >= -0.6 ? 60 : delta >= -1.5 ? 30 : 0
 
-      let newWhiteScoreSum  = state.whiteScoreSum
-      let newBlackScoreSum  = state.blackScoreSum
-      let newWhiteMoveCount = state.whiteMoveCount
-      let newBlackMoveCount = state.blackMoveCount
-
-      if (color === 'w') { newWhiteScoreSum += moveScore; newWhiteMoveCount += 1 }
-      else               { newBlackScoreSum += moveScore; newBlackMoveCount += 1 }
+      const newWhiteScoreSum  = moveColor === 'w' ? state.whiteScoreSum + moveScore : state.whiteScoreSum
+      const newBlackScoreSum  = moveColor === 'b' ? state.blackScoreSum + moveScore : state.blackScoreSum
+      const newWhiteMoveCount = moveColor === 'w' ? state.whiteMoveCount + 1 : state.whiteMoveCount
+      const newBlackMoveCount = moveColor === 'b' ? state.blackMoveCount + 1 : state.blackMoveCount
 
       const liveWhiteAccuracy = newWhiteMoveCount > 0 ? Math.round(newWhiteScoreSum / newWhiteMoveCount) : null
       const liveBlackAccuracy = newBlackMoveCount > 0 ? Math.round(newBlackScoreSum / newBlackMoveCount) : null
