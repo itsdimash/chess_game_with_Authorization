@@ -28,11 +28,8 @@ export async function GET(request: NextRequest) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  // Redirect to home after exchange
+  // Create response with headers FIRST
   const response = NextResponse.redirect(requestUrl.origin)
-
-  // These headers MUST be removed on the callback route —
-  // COOP: same-origin breaks the OAuth redirect session handshake
   response.headers.set('Cross-Origin-Opener-Policy', 'unsafe-none')
   response.headers.set('Cross-Origin-Embedder-Policy', 'unsafe-none')
 

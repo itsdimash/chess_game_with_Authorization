@@ -10,27 +10,51 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    let isMounted = true
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
+    // On mount, check for an existing session
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (isMounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
+      } catch (error) {
+        console.error('Session check error:', error)
+        if (isMounted) setLoading(false)
+      }
+    }
 
-    return () => subscription.unsubscribe()
+    checkSession()
+
+    // Listen for auth state changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (isMounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
+      }
+    )
+
+    return () => {
+      isMounted = false
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const ensureProfile = useCallback(async (user: User) => {
-    const username = user.user_metadata?.user_name
-      || user.user_metadata?.name
-      || user.email?.split('@')[0]
-      || 'Player'
+    const username =
+      user.user_metadata?.user_name ||
+      user.user_metadata?.name ||
+      user.email?.split('@')[0] ||
+      'Player'
 
-    const { error } = await supabase
-      .from('profiles')
-      .upsert({ id: user.id, username }, { onConflict: 'id', ignoreDuplicates: true })
+    const { error } = await supabase.from('profiles').upsert(
+      { id: user.id, username },
+      { onConflict: 'id' }
+    )
 
     if (error) console.error('Profile upsert error:', error)
   }, [])
