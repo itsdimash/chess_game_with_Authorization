@@ -1,6 +1,6 @@
 # ♞ KnightOwl Chess
 
-A chess app with AI coaching powered by Stockfish.
+A chess app with AI coaching powered by Stockfish and Supabase authentication + leaderboard.
 
 ## Setup Instructions
 
@@ -15,64 +15,163 @@ Copy the example env file and fill in your Supabase credentials:
 cp .env.local.example .env.local
 ```
 
-Then edit `.env.local` with your real values from https://supabase.com/dashboard
+Then edit `.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
 
-> **Note:** If you don't want multiplayer, you can use dummy values:
-> ```
-> NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
-> NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder_key
-> ```
-> The game will still work for AI and analysis modes.
+Get these from your Supabase dashboard → Settings → API.
 
-### 3. Add Stockfish (for AI moves)
-Download Stockfish WASM and place it in `public/stockfish/`:
+### 3. Set up Supabase database
+Run this SQL in Supabase → SQL Editor:
+
+```sql
+-- Players profile (extends Supabase auth)
+create table profiles (
+  id uuid references auth.users on delete cascade primary key,
+  username text unique,
+  avatar_url text,
+  created_at timestamp default now()
+);
+
+-- Game history
+create table games (
+  id uuid default gen_random_uuid() primary key,
+  player_id uuid references profiles(id) on delete cascade,
+  result text check (result in ('win', 'loss', 'draw')),
+  player_color text check (player_color in ('w', 'b')),
+  difficulty int,
+  moves int,
+  duration int,
+  pgn text,
+  created_at timestamp default now()
+);
+
+-- Leaderboard view
+create view leaderboard as
+select
+  p.username,
+  count(*) filter (where g.result = 'win') as wins,
+  count(*) filter (where g.result = 'loss') as losses,
+  count(*) filter (where g.result = 'draw') as draws,
+  count(*) as total_games
+from profiles p
+left join games g on g.player_id = p.id
+group by p.username
+order by wins desc;
+
+-- Fix leaderboard security
+alter view public.leaderboard set (security_invoker = true);
+
+-- Row level security
+alter table profiles enable row level security;
+alter table games enable row level security;
+
+create policy "Users can view all profiles" on profiles for select using (true);
+create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
+create policy "Users can insert own profile" on profiles for insert with check (auth.uid() = id);
+
+create policy "Users can view all games" on games for select using (true);
+create policy "Users can insert own games" on games for insert with check (auth.uid() = player_id);
+
+-- Auto-create profile on signup
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, username)
+  values (
+    new.id,
+    coalesce(
+      new.raw_user_meta_data->>'user_name',
+      new.raw_user_meta_data->>'name',
+      split_part(new.email, '@', 1),
+      'Player'
+    )
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create or replace trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+```
+
+### 4. Enable OAuth providers
+In Supabase → Authentication → Providers, enable:
+- **Google** — add your Client ID and Secret
+- **GitHub** — add your Client ID and Secret
+
+Add your app URL to Supabase → Authentication → URL Configuration → Redirect URLs:
+- Local: `http://localhost:3000/**`
+- Production: `https://your-app.vercel.app/**`
+
+### 5. Add Stockfish (for AI moves)
+Download Stockfish and place it in `public/stockfish/`:
 - Go to https://github.com/nicvagn/stockfish-js/releases
 - Download `stockfish.js` and `stockfish.wasm`
 - Place both files in `public/stockfish/`
 
 > **Without Stockfish:** The game still works — AI will make random moves as a fallback.
 
-### 4. Run the app
+### 6. Run the app
 ```bash
 npm run dev
 ```
 
 Open http://localhost:3000
 
+---
+
+## Deployment (Vercel)
+
+1. Push to GitHub
+2. Go to vercel.com → Add New Project → import your repo
+3. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Click Deploy
+
+---
+
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── layout.tsx        # Root layout
-│   ├── page.tsx          # Main game page
-│   └── globals.css       # Global styles + CSS variables
-├── components/game/
-│   ├── ChessBoard.tsx    # Interactive chess board
-│   ├── AICoach.tsx       # AI coaching panel
-│   ├── Piece.tsx         # Chess piece renderer
-│   ├── EvalBar.tsx       # Evaluation bar
-│   └── MoveHighlight.tsx # Move highlight overlay
+│   ├── layout.tsx              # Root layout with ThemeProvider
+│   ├── page.tsx                # Main game page
+│   └── globals.css             # Global styles + CSS variables
+├── components/
+│   ├── AuthModal.tsx           # Google + GitHub sign in modal
+│   ├── Leaderboard.tsx         # Leaderboard fetched from Supabase view
+│   ├── ThemeProvider.tsx       # Dark/light theme toggle
+│   └── game/
+│       ├── ChessBoard.tsx      # Interactive chess board with drag + drop
+│       ├── AICoach.tsx         # AI coaching panel
+│       ├── Piece.tsx           # Chess piece renderer
+│       ├── EvalBar.tsx         # Evaluation bar
+│       └── MoveHighlight.tsx   # Move highlight overlay
 ├── hooks/
-│   ├── useStockfish.ts   # Stockfish WASM hook
-│   └── useMultiplayer.ts # Supabase realtime multiplayer
+│   ├── useAuth.ts              # Supabase auth hook (Google, GitHub, signOut)
+│   └── useStockfish.ts         # Stockfish WASM hook with difficulty levels
 ├── store/
-│   └── gameStore.ts      # Zustand game state
+│   └── gameStore.ts            # Zustand game state + Supabase game saving
 ├── lib/supabase/
-│   └── client.ts         # Supabase client helpers
+│   └── supabase.ts             # Supabase client
 └── types/
-    └── index.ts          # TypeScript types
+    └── index.ts                # TypeScript types
 ```
 
-## Missing Files (that were generated but needed)
-All of these are now included:
-- ✅ `next.config.js` - with COOP/COEP headers for Stockfish WASM
-- ✅ `tsconfig.json` - with `@/*` path aliases
-- ✅ `tailwind.config.js`
-- ✅ `postcss.config.js`
-- ✅ `src/app/layout.tsx`
-- ✅ `src/app/page.tsx`
-- ✅ `src/app/globals.css`
-- ✅ `src/components/game/Piece.tsx`
-- ✅ `src/components/game/EvalBar.tsx`
-- ✅ `src/components/game/MoveHighlight.tsx`
+## Features
+
+- ♟ Play vs AI (Stockfish) with 5 difficulty levels
+- 🔍 Analysis mode — move both sides freely
+- ⏱ Multiple time controls (1+0 to 30+0)
+- 🎨 5 board themes
+- 🔐 Google + GitHub authentication via Supabase
+- 💾 Game results auto-saved to Supabase after each game
+- 🏆 Leaderboard with wins, losses, draws
+- 🌙 Dark/light mode
+- 📱 Responsive — works on mobile and desktop
