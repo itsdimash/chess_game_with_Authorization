@@ -145,7 +145,9 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
 
       const cfg = DIFFICULTY_CONFIG[diff] ?? DIFFICULTY_CONFIG[3]
 
-      send('stop')
+      // Do NOT send 'stop' or 'isready' here — those can interfere with a
+      // pending search or cause readyok to arrive at an unexpected time.
+      // setoption commands are buffered by the engine and safe to send anytime.
       send(`setoption name Skill Level value ${cfg.skill}`)
 
       if (cfg.limitStrength) {
@@ -154,8 +156,6 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       } else {
         send('setoption name UCI_LimitStrength value false')
       }
-
-      send('isready')
     },
     [send]
   )
@@ -193,7 +193,14 @@ export function useStockfish({ depth = 15, onAnalysis }: UseStockfishOptions = {
       applyDifficultyOptions(difficulty)
 
       setAIThinking(true)
+
+      if (cfg.limitStrength) {
+        // Levels 1–3: clear any stale pending callback that could block future moves
+        pendingRef.current = null
+      }
+
       bufferRef.current  = {}
+
       pendingRef.current = (result) => {
         if (result.bestMove) {
           const from  = result.bestMove.slice(0, 2)
