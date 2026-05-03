@@ -154,6 +154,27 @@ export function AICoach() {
         )}
       </AnimatePresence>
 
+      {/* Live accuracy — always visible once moves have been played */}
+      {(whiteAccuracy !== null || blackAccuracy !== null) && (
+        <div className="grid grid-cols-2 gap-2">
+          {([['♔ White', whiteAccuracy], ['♚ Black', blackAccuracy]] as const).map(([label, acc]) => (
+            <div key={label} className="rounded-lg bg-surface2 p-2 text-center">
+              <motion.div
+                key={acc}
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className={clsx('text-base font-bold font-mono', accuracyColor(acc))}
+              >
+                {acc !== null ? `${acc}%` : '—'}
+              </motion.div>
+              <div className="text-[9px] text-muted mt-0.5">
+                {label} {!fullAnalysis.length && <span className="opacity-50">live</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Analysis section */}
       {moveHistory.length > 0 && (
         <div>
@@ -182,25 +203,6 @@ export function AICoach() {
           <AnimatePresence>
             {isExpanded && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-
-                {/* Accuracy boxes — live during game, precise after full analysis */}
-                {(whiteAccuracy !== null || blackAccuracy !== null) && (
-                  <div className="grid grid-cols-2 gap-2 mt-3">
-                    {([['♔ White', whiteAccuracy], ['♚ Black', blackAccuracy]] as const).map(([label, acc]) => (
-                      <div key={label} className="rounded-lg bg-surface2 p-2 text-center">
-                        <motion.div
-                          key={acc}
-                          initial={{ scale: 0.8, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          className={clsx('text-base font-bold font-mono', accuracyColor(acc))}
-                        >
-                          {acc !== null ? `${acc}%` : '—'}
-                        </motion.div>
-                        <div className="text-[9px] text-muted mt-0.5">{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
 
                 {/* Error counts + move list — only after full analysis */}
                 {fullAnalysis.length > 0 && (
