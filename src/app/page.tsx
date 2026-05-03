@@ -54,13 +54,14 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('game')
   const boardSize = useBoardSize()
 
+  const { analyzePosition, playAIMove, isReady } = useStockfish({ onAnalysis: () => {} })
+
   const handleAIMove = (from: string, to: string, promo?: string) => {
     const state = useGameStore.getState()
     if (state.status !== 'playing' && state.status !== 'check') return
     state.makeMove(from as Square, to as Square, promo)
+    analyzePosition(useGameStore.getState().chess.fen())
   }
-
-  const { analyzePosition, playAIMove, isReady } = useStockfish({ onAnalysis: () => {} })
 
   useEffect(() => {
     if (!gameStarted || mode !== 'ai') return
