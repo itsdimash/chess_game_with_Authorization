@@ -4,6 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark mode (default) ── */
 :root {
   --background: #080a0e;
   --surface: #0e1117;
@@ -24,6 +25,28 @@
   --font-display: 'Cinzel', serif;
   --font-body: 'Cormorant Garamond', serif;
   --font-mono: 'DM Mono', monospace;
+  --body-bg-gradient: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(200, 169, 110, 0.06) 0%, transparent 60%);
+}
+
+/* ── Light mode ── */
+html.light {
+  --background: #f5f0e8;
+  --surface: #ede8de;
+  --surface2: #e4ddd0;
+  --surface3: #d8d0c0;
+  --border: #c8bfaa;
+  --border2: #b8ae98;
+  --text: #1a1610;
+  --text2: #4a4030;
+  --muted: #8a8070;
+  --accent: #9a7030;
+  --accent2: #b88c3a;
+  --accent-dim: #c8a060;
+  --danger: #b03020;
+  --success: #2a7040;
+  --glow: rgba(154, 112, 48, 0.14);
+  --glow-strong: rgba(154, 112, 48, 0.28);
+  --body-bg-gradient: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(154, 112, 48, 0.08) 0%, transparent 60%);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -38,9 +61,15 @@ body {
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(200, 169, 110, 0.06) 0%, transparent 60%),
+    var(--body-bg-gradient),
     url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
   background-attachment: fixed;
+}
+
+/* Smooth theme transitions */
+body, .glass, .btn-ghost, .btn-gold,
+.bg-background, .bg-surface, .bg-surface2, .bg-surface3 {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .bg-background  { background-color: var(--background); }
@@ -66,6 +95,9 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
 }
+html.light .glass {
+  background: linear-gradient(135deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.35) 100%);
+}
 
 .btn-gold {
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
@@ -81,6 +113,7 @@ body {
   overflow: hidden;
   transition: all 0.25s ease;
 }
+html.light .btn-gold { color: #fff; }
 .btn-gold:hover { box-shadow: 0 0 28px var(--glow-strong), 0 4px 16px rgba(0,0,0,0.4); }
 
 .btn-ghost {
@@ -106,6 +139,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
 
 ::selection { background: rgba(200,169,110,0.25); color: var(--accent2); }
+html.light ::selection { background: rgba(154,112,48,0.2); color: var(--accent); }
 
 .divider {
   height: 1px;

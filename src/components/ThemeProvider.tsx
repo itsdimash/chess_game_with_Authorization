@@ -12,22 +12,21 @@ const ThemeContext = createContext<{
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark')
 
-  // On mount, read saved preference or system preference
   useEffect(() => {
     const saved = localStorage.getItem('theme') as Theme | null
     if (saved === 'light' || saved === 'dark') {
+      applyTheme(saved)
       setTheme(saved)
-      document.documentElement.classList.toggle('light', saved === 'light')
     } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+      applyTheme('light')
       setTheme('light')
-      document.documentElement.classList.add('light')
     }
   }, [])
 
   const toggle = () => {
     setTheme(prev => {
       const next = prev === 'dark' ? 'light' : 'dark'
-      document.documentElement.classList.toggle('light', next === 'light')
+      applyTheme(next)
       localStorage.setItem('theme', next)
       return next
     })
@@ -40,11 +39,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
+function applyTheme(theme: Theme) {
+  const root = document.documentElement
+  if (theme === 'light') {
+    root.classList.add('light')
+  } else {
+    root.classList.remove('light')
+  }
+}
+
 export function useTheme() {
   return useContext(ThemeContext)
 }
 
-// Drop-in toggle button — import and place anywhere
 export function ThemeToggle() {
   const { theme, toggle } = useTheme()
   return (
